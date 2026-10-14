@@ -31,7 +31,7 @@ body{background:var(--field);color:var(--ink);font:500 15px/1.5 var(--body);over
 video,#probe{display:none}
 #sheet>*{flex-shrink:0}
 #aim{margin:0;display:flex;flex-direction:column;gap:6px}
-#aimView{display:block;width:100%;aspect-ratio:16/9;object-fit:contain;border-radius:12px;background:#000}
+#aimView{display:block;width:100%;height:auto;border-radius:12px;background:#000}
 #aim figcaption{color:var(--ink-soft);font-size:13px}
 .kiosk,.kiosk #field{cursor:none}
 
@@ -108,8 +108,8 @@ summary{cursor:pointer;font-weight:700;padding:10px 0}
   <p id="status" role="status" aria-live="polite"></p>
   <button id="aimBtn" type="button">Check camera aim</button>
   <figure id="aim" hidden>
-    <video id="aimView" playsinline muted autoplay></video>
-    <figcaption>This is what the camera sees. The whole projected picture should fit inside it, with a little table showing around the edges.</figcaption>
+    <canvas id="aimView" width="480" height="270"></canvas>
+    <figcaption>This is what the camera sees. The whole projected picture should fit inside it. After a line-up, yellow outlines show where the camera expects each puzzle: they should sit right on top of the real ones.</figcaption>
   </figure>
 
   <details id="adjust">
@@ -301,7 +301,7 @@ function buildSlots(st) {
     const mx = pts.reduce((a, q) => a + q[0], 0) / pts.length, my = pts.reduce((a, q) => a + q[1], 0) / pts.length;
     const slot = {pts, mx, my, piece: p, samples: [], filled: old[i] && old.pz === pz ? old[i].filled : false, score: 0, cover: 0};
     if (S.Hm) {
-      const inner = pts.map(([x, y]) => [mx + (x - mx) * .78, my + (y - my) * .78]);
+      const inner = pts.map(([x, y]) => [mx + (x - mx) * .68, my + (y - my) * .68]);
       const xs = inner.map(q => q[0]), ys = inner.map(q => q[1]), step = Math.max(u * .08, 2);
       for (let y = Math.min(...ys); y <= Math.max(...ys); y += step)
         for (let x = Math.min(...xs); x <= Math.max(...xs); x += step) {
@@ -314,6 +314,7 @@ function buildSlots(st) {
     return slot;
   });
   st.slots.pz = pz;
+  st.rad = Math.max(...st.slots.flatMap(sl => sl.pts.map(([x, y]) => Math.hypot(x - st.cx, y - st.cy))));
 }
 
 /* ---------- camera ---------- */
@@ -343,6 +344,7 @@ function lockCamera() {          // best effort: stop auto exposure and white ba
     const tr = video.srcObject.getVideoTracks()[0], caps = tr.getCapabilities ? tr.getCapabilities() : {}, adv = {};
     if ((caps.exposureMode || []).includes('manual')) adv.exposureMode = 'manual';
     if ((caps.whiteBalanceMode || []).includes('manual')) adv.whiteBalanceMode = 'manual';
+    if ((caps.focusMode || []).includes('manual')) adv.focusMode = 'manual';
     if (Object.keys(adv).length) tr.applyConstraints({advanced: [adv]}).catch(() => {});
   } catch (e) {}
 }
@@ -360,7 +362,7 @@ function brightSpot(frame, dark) {
   return [sx / c / S.pw, sy / c / S.ph];
 }
 /* The empty table is photographed with the real reef showing, so the camera's colour balance matches play. */
-async function rebase() { S.scene = {type: 'base'}; await sleep(WAIT); S.base = grab(); S.scene = null; S.dirty = false; S.st.forEach(buildSlots); }
+async function rebase() { S.scene = {type: 'base'}; await sleep(WAIT); S.base = grab(); S.baseBal = balance(S.base); S.calKey = orientKey(); S.scene = null; S.dirty = false; S.st.forEach(buildSlots); }
 async function calibrate() {
   S.Hm = null;
   S.scene = {type: 'black'}; await sleep(WAIT);
@@ -378,27 +380,61 @@ async function calibrate() {
   }
   const hm = homography(DOTS, seen);
   if (!hm || Math.abs(turn) !== 4) throw new Error('The dots were read in a jumbled order. Keep hands and blocks off the table and try again.');
+  S.scene = {type: 'dot', p: [.5, .5]}; await sleep(WAIT);
+  const mid = brightSpot(grab(), dark), want = project(hm, .5, .5);
+  if (!mid || Math.hypot((mid[0] - want[0]) * S.pw, (mid[1] - want[1]) * S.ph) > S.pw * .04)
+    throw new Error('The line-up did not check out: the centre dot was not where the corners said it would be. Keep the phone completely still and hands out of view, then try again.');
   S.Hm = hm;
   await rebase(); lockCamera();
 }
 
 /* ---------- sensing: a piece counts as covered when enough of it is a strong colour the empty table was not ---------- */
+const orientKey = () => ((screen.orientation && screen.orientation.type) || (innerWidth > innerHeight ? 'landscape' : 'portrait')) + ':' + video.videoWidth + 'x' + video.videoHeight;
+/* Each sample is averaged with four neighbours, which smooths out the rainbow patterns a camera sees on a screen. */
+function px(arr, k, out) {
+  const row = S.pw * 8, n = arr.length;
+  let r = 0, g = 0, b = 0, c = 0;
+  for (const o of [0, 8, -8, row, -row]) { const q = k + o; if (q < 0 || q >= n) continue; r += arr[q]; g += arr[q + 1]; b += arr[q + 2]; c++; }
+  out[0] = r / c; out[1] = g / c; out[2] = b / c; return out;
+}
+const P = [0, 0, 0], Q = [0, 0, 0];
+/* The camera's overall colour balance, from a sparse grid over the whole picture. */
+function balance(arr) {
+  let r = 0, g = 0, b = 0;
+  for (let k = 0; k < arr.length; k += 4 * 13) { r += arr[k]; g += arr[k + 1]; b += arr[k + 2]; }
+  return [r || 1, g || 1, b || 1];
+}
 function sense() {
-  if (S.mode !== 'camera' || S.scene || !sheet.hidden || !S.base) return;
-  const d = grab(), need = cfg.need / 100;
+  if (S.mode !== 'camera' || S.scene || !sheet.hidden || !S.base || S.busy) return;
+  if (S.calKey && orientKey() !== S.calKey) { begin(true); return; }   // the screen or camera turned: line up again
+  const d = grab(), need = cfg.need / 100, now_ = balance(d), gain = S.baseBal.map((v, i) => v / now_[i]);
+  let slots = 0, jumped = 0;
+  const covers = [];
+  for (const st of S.st) for (const s of st.slots) {
+    let hit = 0;
+    for (const k of s.samples) {
+      px(d, k, P); const r = P[0] * gain[0], g = P[1] * gain[1], b = P[2] * gain[2], sum = r + g + b;
+      if (sum < 36) continue;
+      const mx = Math.max(r, g, b);
+      if ((mx - Math.min(r, g, b)) / mx < .3) continue;
+      const [br, bg, bb] = px(S.base, k, Q), bs = br + bg + bb || 1;
+      if (Math.hypot(r / sum - br / bs, g / sum - bg / bs) >= .07) hit++;
+    }
+    const c = hit / (s.samples.length || 1);
+    covers.push([s, c]); slots++;
+    if (c >= need && (s.cover || 0) < need * .6) jumped++;
+  }
+  /* Lots of pieces changing at once means the camera or the room changed, not that blocks arrived.
+     Hold the last reading; if the change lasts a few seconds, photograph the table again. */
+  if (jumped >= Math.max(4, slots * .4)) {
+    if ((S.shaky = (S.shaky || 0) + 1) > 18) { S.shaky = 0; rebase(); }
+    return;
+  }
+  S.shaky = 0;
+  for (const [sl, c] of covers) sl.cover = c;
   for (const st of S.st) {
     let allEmpty = true;
     st.slots.forEach((s, i) => {
-      let hit = 0;
-      for (const k of s.samples) {
-        const r = d[k], g = d[k + 1], b = d[k + 2], sum = r + g + b;
-        if (sum < 36) continue;
-        const mx = Math.max(r, g, b);
-        if ((mx - Math.min(r, g, b)) / mx < .25) continue;
-        const br = S.base[k], bg = S.base[k + 1], bs = br + bg + S.base[k + 2] || 1;
-        if (Math.hypot(r / sum - br / bs, g / sum - bg / bs) >= .06) hit++;
-      }
-      s.cover = hit / (s.samples.length || 1);
       if (s.cover > .2) allEmpty = false;
       if (st.phase !== 'play') return;
       s.score = Math.max(0, Math.min(3, s.score + (s.cover >= need ? 1 : s.cover < need * .6 ? -1 : 0)));
@@ -441,8 +477,8 @@ function sparkle(x, y, n, speed, cols) {
     S.parts.push({type: 'star', x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 0, max: .5 + Math.random() * .7, r: S.u * (.1 + Math.random() * .14), c: cols[i % cols.length]});
   }
 }
-function spawn(pz, x, y, rot, hold) {
-  S.fish.push({pz, x, y, rot, head: rot + UP, turn: 0, age: hold ? 0 : 9, hold: hold || 0, seed: Math.random() * 10, alpha: 1});
+function spawn(pz, x, y, rot, hold, home) {
+  S.fish.push({pz, x, y, rot, head: rot + UP, turn: 0, age: hold ? 0 : 9, hold: hold || 0, seed: Math.random() * 10, alpha: 1, home: home || null});
   const live = S.fish.filter(c => !c.dying);
   if (live.length > 16) live[0].dying = true;
 }
@@ -453,7 +489,7 @@ function fill(st, i) {
   tone([523, 587, 659, 784, 880, 988, 1047][i % 7]);
   if (!st.slots.every(q => q.filled)) return;
   const pz = PUZZLES[st.idx];
-  spawn(pz, st.cx, st.cy, st.rot, 1.2);
+  spawn(pz, st.cx, st.cy, st.rot, 1.2, st);
   sparkle(st.cx, st.cy, 26, S.u * 5, ['#fff', '#ffd23f', '#7fe3ff', '#ff8ab5']);
   S.parts.push({type: 'wave', x: st.cx, y: st.cy, life: 0, max: .9}, {type: 'wave', x: st.cx, y: st.cy, life: -.25, max: .9});
   [523, 659, 784, 1047, 1319].forEach((f, k) => tone(f, .12 * k, .35));
@@ -539,6 +575,11 @@ function stepFish(c, dt, t) {
   let sp = pz.speed * u; if (pz.pulse) sp *= .35 + 1.3 * Math.max(0, Math.sin(t * 2.6 + c.seed));
   c.x = Math.min(F.x + F.w - u * .5, Math.max(F.x + u * .5, c.x + Math.cos(c.head) * sp * dt));
   c.y = Math.min(F.y + F.h - u * .5, Math.max(F.y + u * .5, c.y + Math.sin(c.head) * sp * dt));
+  for (const st of S.st) {                           // a hard keep-out ring around each puzzle
+    const dx = c.x - st.cx, dy = c.y - st.cy, d = Math.hypot(dx, dy) || 1, R = (st.rad || u * 3) + u * 1.2;
+    if (c.home === st) { if (d > R) c.home = null; continue; }
+    if (d < R) { c.x = st.cx + dx / d * R; c.y = st.cy + dy / d * R; }
+  }
   if (pz.spin) c.rot += dt * .5; else c.rot += turnTo(c.head - pz.fwd, c.rot) * Math.min(1, dt * 3.5);
 }
 function drawFish(c, t) {
@@ -600,7 +641,7 @@ function frame(ms) {
   ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.fillStyle = '#000'; ctx.fillRect(0, 0, S.W, S.H);
   const sc = S.scene;
   try {
-    if (sc && sc.type === 'dot') { const [x, y] = DOTS[sc.i]; dot(x * S.W, y * S.H, Math.min(S.W, S.H) * .06, '#fff'); }
+    if (sc && sc.type === 'dot') { const [x, y] = sc.p || DOTS[sc.i]; dot(x * S.W, y * S.H, Math.min(S.W, S.H) * .06, '#fff'); }
     else if (!sc || sc.type === 'base') {
       if (S.bg) ctx.drawImage(S.bg, 0, 0);
       if (!sc) {
@@ -608,15 +649,19 @@ function frame(ms) {
         S.fish = S.fish.filter(c => c.alpha > 0);
         for (const c of S.fish) { stepFish(c, dt, now); if (c.age >= c.hold + .7) drawFish(c, now); }
       }
+      const cam = S.mode === 'camera' && !sc;
+      for (const st of S.st) if (!cam || st.phase !== 'play') drawStation(st, now);
+      if (cam) { for (const c of S.fish) if (c.age < c.hold + .7) drawFish(c, now); drawParts(dt); }
+      for (const st of S.st) if (cam && st.phase === 'play') drawStation(st, now);
       for (const st of S.st) {
-        drawStation(st, now);
         if (sc) continue;
         if (S.mode !== 'camera' && st.phase === 'clear' && now - st.t0 > 1.8) nextPuzzle(st);
         if (S.mode === 'attract' && st.phase === 'play' && now > st.auto) { st.auto = now + .7; fill(st, st.slots.findIndex(s => !s.filled)); }
       }
-      if (!sc) { for (const c of S.fish) if (c.age < c.hold + .7) drawFish(c, now); drawParts(dt); }
+      if (!sc && !cam) { for (const c of S.fish) if (c.age < c.hold + .7) drawFish(c, now); drawParts(dt); }
     }
   } catch (e) { console.error(e); }
+  try { drawAim(); } catch (e) {}
   requestAnimationFrame(frame);
 }
 
@@ -635,7 +680,7 @@ async function backToPlay() {
   if (S.mode === 'camera' && S.Hm) { try { await rebase(); } catch (e) {} }   // the table view changed, so photograph it empty again
 }
 function goBig() {
-  try { const p = document.documentElement.requestFullscreen && document.documentElement.requestFullscreen(); if (p) p.catch(() => {}); } catch (e) {}
+  try { const p = document.documentElement.requestFullscreen && document.documentElement.requestFullscreen(); if (p) p.then(() => { try { screen.orientation.lock(screen.orientation.type).catch(() => {}); } catch (e) {} }).catch(() => {}); } catch (e) {}
   try { if (navigator.wakeLock) navigator.wakeLock.request('screen').catch(() => {}); } catch (e) {}
 }
 /* The line-up between projector and camera is saved, so a fixed rig only flashes the dots once. */
@@ -661,11 +706,23 @@ async function begin(fresh) {
     return false;
   } finally { S.busy = false; }
 }
-function showAim() {
-  if (!video.srcObject) return;
-  const v = $('aimView'); v.srcObject = video.srcObject; v.play().catch(() => {}); $('aim').hidden = false;
+function showAim() { if (video.srcObject) $('aim').hidden = false; }
+const aimCv = $('aimView'), aimCtx = aimCv.getContext('2d');
+function drawAim() {
+  if ($('aim').hidden || sheet.hidden || !video.videoWidth) return;
+  const w = 480, h = Math.round(480 * video.videoHeight / video.videoWidth);
+  if (aimCv.width !== w || aimCv.height !== h) { aimCv.width = w; aimCv.height = h; }
+  aimCtx.drawImage(video, 0, 0, w, h);
+  if (!S.Hm) return;
+  aimCtx.lineWidth = 2.5; aimCtx.strokeStyle = '#ffd23f';
+  for (const st of S.st) for (const sl of st.slots) {
+    aimCtx.beginPath();
+    sl.pts.forEach(([x, y], i) => { const [u, v] = project(S.Hm, x / S.W, y / S.H); i ? aimCtx.lineTo(u * w, v * h) : aimCtx.moveTo(u * w, v * h); });
+    aimCtx.closePath(); aimCtx.stroke();
+  }
 }
 $('aimBtn').onclick = async () => {
+  if (video.srcObject && video.srcObject.active) return showAim();
   note('Opening the camera…');
   try { await startCamera(); note(''); showAim(); } catch (e) { note(e.message); }
 };
