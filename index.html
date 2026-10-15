@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Play Table</title>
-<meta name="description" content="Projector games for the table: play with real blocks, watched by a phone camera.">
+<meta name="description" content="Projector games for the table: play with real blocks or hand shadows, watched by a phone camera.">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;800&family=Nunito:wght@500;700;800&display=swap">
 <style>
 /* Layout: one dark sheet, a title row, then a grid of game cards that wraps to one column on a phone. */
@@ -65,7 +65,7 @@ h1 span:nth-child(4){color:var(--blue)}
 <div class="wrap">
   <header>
     <h1><span>Pl</span><span>ay </span><span>Ta</span><span>ble</span></h1>
-    <p class="lead">Projector games you play with real blocks on the table. A phone camera watches what you build.</p>
+    <p class="lead">Projector games you play on the table with real blocks or just your hands. A phone camera watches what you make.</p>
   </header>
 
   <main class="grid" id="games" aria-label="Games"></main>
@@ -89,6 +89,14 @@ const GAMES = [
     cover: 'games/block-table/cover.jpg',
     blurb: 'Fill the outlined shapes with pattern blocks and a sea creature swims off into the reef.',
     chips: ['Camera + projector', 'Up to 6 puzzles at once', 'Pattern blocks'],
+    demo: true
+  },
+  {
+    name: 'Shadow Puppets',
+    path: 'games/shadow-puppets/',
+    cover: 'games/shadow-puppets/cover.jpg',
+    blurb: 'Make a rabbit, dog, bird, swan, deer or crocodile with your hands in the light, and its own short film plays.',
+    chips: ['Camera + projector', '6 animals', 'Just your hands'],
     demo: true
   }
 ];
