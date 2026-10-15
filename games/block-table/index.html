@@ -1,0 +1,831 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Block Table</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;800&family=Nunito:wght@500;700&display=swap">
+<style>
+/* Layout: a full-bleed projected reef, with one setup sheet docked left (bottom on narrow screens). */
+:root{
+  --field:#000;
+  --sheet:#0f1524;
+  --sheet-edge:#27314b;
+  --well:#182036;
+  --ink:#eef2f8;
+  --ink-soft:#9ba7c2;
+  --sun:#ffd23f;
+  --sun-ink:#231a00;
+  --red:#ff4b4b;
+  --green:#3ddc6b;
+  --blue:#3a8dff;
+  --display:'Baloo 2','Trebuchet MS',system-ui,sans-serif;
+  --body:'Nunito',system-ui,-apple-system,'Segoe UI',sans-serif;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%;margin:0}
+body{background:var(--field);color:var(--ink);font:500 15px/1.5 var(--body);overflow:hidden;overscroll-behavior:none}
+#field{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+video,#probe{display:none}
+#sheet>*{flex-shrink:0}
+#aim{margin:0;display:flex;flex-direction:column;gap:6px}
+#aimView{display:block;width:100%;height:auto;border-radius:12px;background:#000}
+#aim figcaption{color:var(--ink-soft);font-size:13px}
+.kiosk,.kiosk #field{cursor:none}
+
+#sheet{
+  position:fixed;left:0;top:0;bottom:0;width:min(400px,44vw);
+  background:var(--sheet);border-right:1px solid var(--sheet-edge);
+  overflow-y:auto;display:flex;flex-direction:column;gap:18px;
+  padding:calc(20px + env(safe-area-inset-top,0px)) 20px calc(20px + env(safe-area-inset-bottom,0px));
+}
+@media (max-width:759px){
+  #sheet{top:auto;right:0;width:auto;max-height:64%;border-right:0;border-top:1px solid var(--sheet-edge);
+    padding-top:18px;border-radius:18px 18px 0 0}
+}
+h1{font:800 34px/1 var(--display);margin:0;letter-spacing:-.01em;text-wrap:balance}
+h1 span:nth-child(1){color:var(--red)}
+h1 span:nth-child(2){color:var(--sun)}
+h1 span:nth-child(3){color:var(--green)}
+h1 span:nth-child(4){color:var(--blue)}
+.lead{margin:6px 0 0;color:var(--ink-soft);max-width:38ch}
+h2{font:700 12px/1 var(--body);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-soft);margin:0 0 8px}
+ol{margin:0;padding-left:1.25em;display:flex;flex-direction:column;gap:6px}
+ol li::marker{color:var(--sun);font-weight:700}
+.actions{display:flex;flex-wrap:wrap;gap:10px}
+button{
+  font:700 15px/1 var(--body);color:var(--ink);background:var(--well);
+  border:1px solid var(--sheet-edge);border-radius:999px;padding:13px 18px;cursor:pointer;min-height:44px;
+}
+button.primary{background:var(--sun);color:var(--sun-ink);border-color:var(--sun);flex:1 1 180px}
+button:hover{filter:brightness(1.12)}
+button:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid var(--blue);outline-offset:2px}
+.home{color:var(--ink-soft);font-weight:700;text-decoration:none;align-self:flex-start;padding:6px 0}
+.home:hover,.home:focus-visible{color:var(--ink);text-decoration:underline}
+#status{margin:0;min-height:1.5em;color:var(--sun)}
+#status:empty{display:none}
+details{background:var(--well);border-radius:14px;padding:4px 14px}
+summary{cursor:pointer;font-weight:700;padding:10px 0}
+.knobs{display:flex;flex-direction:column;gap:14px;padding:4px 0 14px}
+.knob{display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:baseline}
+.knob small{grid-column:1/-1;color:var(--ink-soft)}
+.knob output{font-variant-numeric:tabular-nums;color:var(--ink-soft)}
+.knob input[type=range]{grid-column:1/-1;width:100%;accent-color:var(--sun)}
+.check{display:flex;gap:10px;align-items:center}
+.check input{width:20px;height:20px;flex:none;accent-color:var(--sun)}
+#gear{
+  position:fixed;right:calc(10px + env(safe-area-inset-right,0px));top:calc(10px + env(safe-area-inset-top,0px));
+  width:44px;height:44px;padding:0;background:rgba(20,40,60,.3);border-color:rgba(20,40,60,.25);color:rgba(255,255,255,.75);font-size:20px;
+}
+</style>
+</head>
+<body>
+<canvas id="field" aria-label="Projection field"></canvas>
+<video id="cam" playsinline muted></video>
+<canvas id="probe"></canvas>
+
+<aside id="sheet">
+  <div>
+    <h1><span>Bl</span><span>oc</span><span>k&nbsp;</span><span>Table</span></h1>
+    <p class="lead">Fill the outlined shapes at the table's edge with pattern blocks. Finish one and a sea creature swims away into the reef.</p>
+  </div>
+
+  <section id="howto">
+    <h2>Set up</h2>
+    <ol>
+      <li>Mirror this phone to the projector and aim the projector down at a plain, light table or floor.</li>
+      <li>Prop the phone above the table so its back camera sees the whole projected picture.</li>
+      <li>Clear the table and tap Start. Four dots flash while the camera lines itself up.</li>
+    </ol>
+  </section>
+
+  <div class="actions">
+    <button class="primary" id="go" type="button">Start with camera</button>
+    <button id="resume" type="button" hidden>Back to play</button>
+    <button id="demo" type="button">Try without camera</button>
+    <button id="next" type="button" hidden>New puzzles</button>
+  </div>
+  <a class="home" href="../../">&larr; All games</a>
+  <p id="status" role="status" aria-live="polite"></p>
+  <button id="aimBtn" type="button">Check camera aim</button>
+  <figure id="aim" hidden>
+    <canvas id="aimView" width="480" height="270"></canvas>
+    <figcaption>This is what the camera sees. The whole projected picture should fit inside it. After a line-up, yellow outlines show where the camera expects each puzzle: they should sit right on top of the real ones.</figcaption>
+  </figure>
+
+  <details id="adjust">
+    <summary>Adjust</summary>
+    <div class="knobs">
+      <label class="knob" for="side">Puzzles along each side <output id="sideOut"></output>
+        <input id="side" type="range" min="1" max="3" step="1">
+        <small>Three a side matches a full table. Use fewer on a small one.</small></label>
+      <label class="knob" for="size">Block size <output id="sizeOut"></output>
+        <input id="size" type="range" min="3" max="10" step="0.25">
+        <small>Slide until one edge of an outlined shape is as long as one edge of a real block.</small></label>
+      <label class="knob" for="light">Work light <output id="lightOut"></output>
+        <input id="light" type="range" min="30" max="255" step="5">
+        <small>How bright the inside of each outline is. It lights the blocks so the camera can see them.</small></label>
+      <label class="knob" for="need">Fill needed <output id="needOut"></output>
+        <input id="need" type="range" min="25" max="85" step="5">
+        <small>How much of each piece has to be covered. Lower is more forgiving.</small></label>
+      <label class="knob" for="sens">Sensitivity <output id="sensOut"></output>
+        <input id="sens" type="range" min="50" max="250" step="10">
+        <small>How small a change the camera counts as a block. Raise it if blocks are missed; lower it if shapes fill by themselves.</small></label>
+      <label class="check" for="sound"><input id="sound" type="checkbox"> Sounds and spoken names</label>
+      <label class="check" for="front"><input id="front" type="checkbox"> Use the front camera</label>
+    </div>
+  </details>
+</aside>
+
+<button id="gear" type="button" aria-label="Open settings" hidden>&#9881;</button>
+
+<script>
+(() => {
+'use strict';
+const $ = id => document.getElementById(id);
+const cv = $('field'), mainCtx = cv.getContext('2d');
+let ctx = mainCtx;                                   // swapped while the reef is painted to its own canvas
+const video = $('cam'), probe = $('probe'), pctx = probe.getContext('2d', {willReadFrequently: true});
+const sheet = $('sheet'), statusEl = $('status');
+const TAU = Math.PI * 2, h = Math.sqrt(3) / 2;
+
+/* ---------- settings ---------- */
+const cfg = {side: 3, size: 4.75, light: 135, need: 70, sens: 120, sound: true, front: false};   // tuned on the real table
+try { Object.assign(cfg, JSON.parse(localStorage.getItem('blockTable3') || '{}')); } catch (e) {}
+const save = () => { try { localStorage.setItem('blockTable3', JSON.stringify(cfg)); } catch (e) {} };
+
+/* ---------- small drawing helpers ---------- */
+function path(pts) { ctx.beginPath(); pts.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])); ctx.closePath(); }
+function dot(x, y, r, fill) { ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fillStyle = fill; ctx.fill(); }
+function line(col, ...p) { ctx.beginPath(); ctx.moveTo(p[0], p[1]); for (let i = 2; i < p.length; i += 2) ctx.lineTo(p[i], p[i + 1]); ctx.strokeStyle = col; ctx.lineCap = 'round'; ctx.stroke(); }
+function wavy(col, x, y0, y1, t, amp) {
+  ctx.beginPath(); ctx.moveTo(x, y0);
+  for (let y = y0; y <= y1 + .001; y += .12) ctx.lineTo(x + Math.sin(t * 3.2 + y * 3.5 + x * 2) * amp * Math.min(1, (y - y0) * 2), y);
+  ctx.strokeStyle = col; ctx.lineCap = 'round'; ctx.stroke();
+}
+function eye(x, y, r, t) {
+  if ((t + x * 3) % 3.6 < 0.12) { ctx.lineWidth = r * .4; return line('#1b2030', x - r, y, x + r, y); }
+  dot(x, y, r, '#fff'); dot(x + r * .15, y + r * .1, r * .55, '#1b2030'); dot(x + r * .38, y - r * .2, r * .2, '#fff');
+}
+function smile(x, y, r) { ctx.beginPath(); ctx.arc(x, y, r, .15 * Math.PI, .85 * Math.PI); ctx.lineWidth = .06; ctx.strokeStyle = '#1b2030'; ctx.lineCap = 'round'; ctx.stroke(); }
+/* Low-poly shading: a flat polygon split into facets from its centre, each lit by which way its edge faces. */
+function facet(pts, base, k) {
+  const cx = pts.reduce((a, p) => a + p[0], 0) / pts.length, cy = pts.reduce((a, p) => a + p[1], 0) / pts.length;
+  path(pts); ctx.fillStyle = base; ctx.fill();
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i], b = pts[(i + 1) % pts.length], mx = (a[0] + b[0]) / 2 - cx, my = (a[1] + b[1]) / 2 - cy, n = Math.hypot(mx, my) || 1;
+    const d = (mx * -.6 + my * -.8) / n * (k || 1);
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.closePath();
+    ctx.fillStyle = d > 0 ? `rgba(255,255,255,${.34 * d})` : `rgba(10,20,70,${-.24 * d})`; ctx.fill();
+  }
+}
+
+/* ---------- pattern blocks (edge length 1, y down) ---------- */
+const ngon = (n, r, cx, cy, deg) => Array.from({length: n}, (_, i) => { const a = (deg + i * 360 / n) * Math.PI / 180; return [cx + r * Math.cos(a), cy + r * Math.sin(a)]; });
+const HEX = (cx, cy) => ({type: 'hex', pts: ngon(6, 1, cx, cy, 0)});
+const TRI = (cx, cy, deg) => ({type: 'tri', pts: ngon(3, 1 / Math.sqrt(3), cx, cy, deg)});      // centre, and the way one corner points
+const SQ = (cx, cy, deg) => ({type: 'sq', pts: ngon(4, Math.SQRT1_2, cx, cy, 45 + (deg || 0))});
+const TRAP = () => ({type: 'trap', pts: [[-1, h / 2], [1, h / 2], [.5, -h / 2], [-.5, -h / 2]]});
+const RH = (...pts) => ({type: 'rh', pts});
+const BLOCK = {hex: '#f6c21c', trap: '#e23a2e', rh: '#2f6fd6', tri: '#2ea84a', sq: '#f08a1c'};      // real pattern-block colours
+
+const UP = -Math.PI / 2;
+const PUZZLES = [
+  {name: 'little fish', fwd: 0, speed: 1.5, cols: ['#ff9a3c', '#ff6b4a'],
+   pieces: [SQ(0, 0, 45), TRI(-Math.SQRT1_2 - .5774, 0, 0)],
+   over(t) { ctx.lineWidth = .05; line('rgba(255,255,255,.6)', -.15, -.3, -.15, .3); eye(.3, -.1, .15, t); smile(.36, .1, .12); }},
+  {name: 'puffer fish', fwd: 0, speed: 1.2, cols: ['#ffd23f', '#ff9a3c'],
+   pieces: [HEX(0, 0), TRI(-1.5774, 0, 0)],
+   under(t) { const w = Math.sin(t * 6) * .08; ctx.fillStyle = '#ff9a3c'; path([[-.35, -h], [.25, -h], [-.25 + w, -h - .4]]); ctx.fill(); path([[-.35, h], [.25, h], [-.25 + w, h + .4]]); ctx.fill(); },
+   over(t) { for (const [x, y] of [[-.45, -.3], [-.5, .3], [-.05, .5], [0, -.5]]) dot(x, y, .07, 'rgba(255,255,255,.7)'); eye(.48, -.22, .2, t); smile(.56, .16, .2); dot(.2, .2, .13, 'rgba(255,110,150,.5)'); }},
+  {name: 'ray', fwd: UP, speed: 1.1, cols: ['#5aa9ff', '#3d8bf0'],
+   pieces: [RH([0, -.5], [h, 0], [h, 1], [0, .5]), RH([0, -.5], [0, .5], [-h, 1], [-h, 0])],
+   under(t) { ctx.lineWidth = .08; wavy('#3d8bf0', 0, .4, 2.1, t, .14); },
+   over(t) { dot(-.45, .35, .07, 'rgba(255,255,255,.6)'); dot(.45, .35, .07, 'rgba(255,255,255,.6)'); eye(-.24, 0, .12, t); eye(.24, 0, .12, t); }},
+  {name: 'jellyfish', fwd: UP, speed: .9, pulse: true, cols: ['#5a8dff', '#8fb4ff', '#8fb4ff'],
+   pieces: [TRAP(), TRI(-.5, h / 2 + h / 3, 90), TRI(.5, h / 2 + h / 3, 90)],
+   under(t) { ctx.lineWidth = .07; for (const x of [-.75, -.25, .25, .75]) wavy('#ff6b9a', x, h / 2, 2.5, t, .13); },
+   over(t) { eye(-.3, -.02, .14, t); eye(.3, -.02, .14, t); smile(0, .08, .14); dot(-.55, .2, .1, 'rgba(255,130,170,.6)'); dot(.55, .2, .1, 'rgba(255,130,170,.6)'); }},
+  {name: 'squid', fwd: UP, speed: 1.3, pulse: true, cols: ['#ff7a9c', '#ff9ab5', '#ff7a9c'],
+   pieces: [TRI(0, -h / 3, -90), SQ(0, .5), SQ(0, 1.5)],
+   under(t) { ctx.lineWidth = .09; for (const x of [-.36, -.12, .12, .36]) wavy('#ff7a9c', x, 1.9, 3, t, .1); },
+   over(t) { eye(-.22, 1.45, .15, t); eye(.22, 1.45, .15, t); dot(0, .3, .06, 'rgba(255,255,255,.6)'); dot(-.15, .7, .06, 'rgba(255,255,255,.6)'); dot(.2, .6, .06, 'rgba(255,255,255,.6)'); }},
+  {name: 'crab', fwd: 0, speed: .8, cols: ['#ff5a4a', '#ff8a5a', '#ff8a5a'],
+   pieces: [TRAP(), RH([.5, -h / 2], [1, h / 2], [1.5, -h / 2], [1, -1.5 * h]), RH([-.5, -h / 2], [-1, -1.5 * h], [-1.5, -h / 2], [-1, h / 2])],
+   under(t) { ctx.lineWidth = .09; for (let i = 0; i < 3; i++) for (const s of [-1, 1]) { const w = Math.sin(t * 9 + i * 2 + s) * .1; line('#e04a3a', s * (.4 + i * .25), h / 2 - .05, s * (.6 + i * .3), h / 2 + .4 + w); } },
+   over(t) { ctx.lineWidth = .07; line('#ff5a4a', -.25, -h / 2, -.28, -.8); line('#ff5a4a', .25, -h / 2, .28, -.8); eye(-.28, -.9, .15, t); eye(.28, -.9, .15, t); smile(0, -.05, .2); }},
+  {name: 'turtle', fwd: UP, speed: .8, cols: ['#ffd23f', '#4cc38a', '#4cc38a', '#4cc38a'],
+   pieces: [HEX(0, 0), SQ(0, -h - .5), TRI(1, -.5774, -30), TRI(-1, -.5774, -150)],
+   under(t) { const w = Math.sin(t * 4) * .1; ctx.fillStyle = '#3aa874'; path([[1, 0], [.5, h], [1.2 + w, .85]]); ctx.fill(); path([[-1, 0], [-.5, h], [-1.2 - w, .85]]); ctx.fill(); path([[-.15, h], [.15, h], [0, h + .35]]); ctx.fill(); },
+   over(t) { ctx.lineWidth = .05; const inner = ngon(6, .5, 0, 0, 0); path(inner); ctx.strokeStyle = 'rgba(255,255,255,.7)'; ctx.stroke(); ngon(6, 1, 0, 0, 0).forEach((p, i) => line('rgba(255,255,255,.7)', inner[i][0], inner[i][1], p[0], p[1])); eye(-.2, -h - .6, .12, t); eye(.2, -h - .6, .12, t); }},
+  {name: 'sea star', fwd: 0, speed: .35, spin: true, cols: ['#ffb45e', '#ff9a3c', '#ff8a2c', '#ff9a3c', '#ff8a2c', '#ff9a3c', '#ff8a2c'],
+   pieces: [HEX(0, 0)].concat([0, 1, 2, 3, 4, 5].map(i => { const a = (30 + 60 * i) * Math.PI / 180; return TRI(Math.cos(a) * 1.1547, Math.sin(a) * 1.1547, 30 + 60 * i); })),
+   over(t) { for (let i = 0; i < 6; i++) { const a = (30 + 60 * i) * Math.PI / 180; dot(Math.cos(a) * 1.15, Math.sin(a) * 1.15, .09, 'rgba(255,255,255,.7)'); } eye(-.27, -.1, .16, t); eye(.27, -.1, .16, t); smile(0, .12, .2); }}
+];
+for (const pz of PUZZLES) {                          // centre each picture on its own bounding box
+  const xs = pz.pieces.flatMap(p => p.pts.map(q => q[0])), ys = pz.pieces.flatMap(p => p.pts.map(q => q[1]));
+  pz.ox = (Math.min(...xs) + Math.max(...xs)) / 2; pz.oy = (Math.min(...ys) + Math.max(...ys)) / 2;
+}
+
+/* ---------- state ---------- */
+const S = {mode: 'attract', scene: null, st: [], fish: [], parts: [], cursor: 0, Hm: null, base: null, dirty: false,
+           W: 0, H: 0, u: 40, free: {x: 0, y: 0, w: 1, h: 1}, pw: 640, ph: 360, bg: null};
+const DOTS = [[.2, .2], [.8, .2], [.8, .8], [.2, .8]];
+const WAIT = 1200;                      // ms for screen mirroring and camera exposure to settle
+let now = 0;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const note = msg => { statusEl.textContent = msg || ''; };
+const rnd = i => { const x = Math.sin(i * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
+const turnTo = (a, b) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
+
+/* ---------- geometry ---------- */
+function homography(src, dst) {
+  const A = [];
+  for (let i = 0; i < 4; i++) {
+    const [x, y] = src[i], [u, v] = dst[i];
+    A.push([x, y, 1, 0, 0, 0, -u * x, -u * y, u], [0, 0, 0, x, y, 1, -v * x, -v * y, v]);
+  }
+  for (let c = 0; c < 8; c++) {
+    let p = c;
+    for (let r = c + 1; r < 8; r++) if (Math.abs(A[r][c]) > Math.abs(A[p][c])) p = r;
+    if (Math.abs(A[p][c]) < 1e-10) return null;
+    [A[c], A[p]] = [A[p], A[c]];
+    for (let r = 0; r < 8; r++) if (r !== c) {
+      const f = A[r][c] / A[c][c];
+      for (let k = c; k < 9; k++) A[r][k] -= f * A[c][k];
+    }
+  }
+  return A.map((row, i) => row[8] / row[i]);
+}
+function project(hm, x, y) {
+  const w = hm[6] * x + hm[7] * y + 1;
+  return [(hm[0] * x + hm[1] * y + hm[2]) / w, (hm[3] * x + hm[4] * y + hm[5]) / w];
+}
+function inside(pts, x, y) {
+  let hit = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const [xi, yi] = pts[i], [xj, yj] = pts[j];
+    if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) hit = !hit;
+  }
+  return hit;
+}
+
+/* Puzzle pads sit along both long sides, each turned to face the builder on that side. */
+function layout() {
+  const r = cv.getBoundingClientRect(), dpr = Math.min(window.devicePixelRatio || 1, 2);
+  S.W = cv.width = Math.max(2, Math.round(r.width * dpr));
+  S.H = cv.height = Math.max(2, Math.round(r.height * dpr));
+  let x0 = 0, y1 = S.H;
+  if (!sheet.hidden) {
+    const s = sheet.getBoundingClientRect();
+    if (s.width < r.width * .9) x0 = s.right * dpr; else y1 = s.top * dpr;
+  }
+  const F = S.free = {x: x0, y: 0, w: S.W - x0, h: y1};
+  S.u = Math.min(F.w, F.h) * cfg.size / 100;
+  const n = cfg.side, wide = F.w >= F.h, spots = [];
+  for (let i = 0; i < n; i++) {
+    const f = (i + .5) / n, m = S.u * 2.7;
+    if (wide) spots.push({cx: F.x + F.w * f, cy: F.y + F.h - m, rot: 0}, {cx: F.x + F.w * f, cy: F.y + m, rot: Math.PI});
+    else spots.push({cx: F.x + m, cy: F.y + F.h * f, rot: Math.PI / 2}, {cx: F.x + F.w - m, cy: F.y + F.h * f, rot: -Math.PI / 2});
+  }
+  S.st.length = Math.min(S.st.length, spots.length);
+  spots.forEach((sp, i) => {
+    const st = S.st[i] || (S.st[i] = {idx: S.cursor++ % PUZZLES.length, phase: 'play', t0: now, tin: now, slots: [], emptyRun: 0, auto: now + 1.5 + rnd(i) * 4});
+    Object.assign(st, sp); buildSlots(st);
+  });
+  for (const c of S.fish) { c.x = Math.min(F.x + F.w - S.u, Math.max(F.x + S.u, c.x)); c.y = Math.min(F.y + F.h - S.u, Math.max(F.y + S.u, c.y)); }
+  buildReef();
+  if (S.mode === 'camera') S.dirty = true;
+}
+
+function buildSlots(st) {
+  const pz = PUZZLES[st.idx], old = st.slots, cs = Math.cos(st.rot), sn = Math.sin(st.rot), u = S.u;
+  st.slots = pz.pieces.map((p, i) => {
+    const pts = p.pts.map(([x, y]) => { const lx = (x - pz.ox) * u, ly = (y - pz.oy) * u; return [st.cx + lx * cs - ly * sn, st.cy + lx * sn + ly * cs]; });
+    const mx = pts.reduce((a, q) => a + q[0], 0) / pts.length, my = pts.reduce((a, q) => a + q[1], 0) / pts.length;
+    const slot = {pts, mx, my, piece: p, samples: [], filled: old[i] && old.pz === pz ? old[i].filled : false, score: 0, cover: 0};
+    if (S.Hm) {
+      const inner = pts.map(([x, y]) => [mx + (x - mx) * .68, my + (y - my) * .68]);
+      const xs = inner.map(q => q[0]), ys = inner.map(q => q[1]), step = Math.max(u * .08, 2);
+      for (let y = Math.min(...ys); y <= Math.max(...ys); y += step)
+        for (let x = Math.min(...xs); x <= Math.max(...xs); x += step) {
+          if (!inside(inner, x, y)) continue;
+          const [a, b] = project(S.Hm, x / S.W, y / S.H);
+          const px = Math.round(a * S.pw), py = Math.round(b * S.ph);
+          if (px >= 0 && py >= 0 && px < S.pw && py < S.ph) slot.samples.push((py * S.pw + px) * 4);
+        }
+    }
+    return slot;
+  });
+  st.slots.pz = pz;
+  st.rad = Math.max(...st.slots.flatMap(sl => sl.pts.map(([x, y]) => Math.hypot(x - st.cx, y - st.cy))));
+}
+
+/* ---------- camera ---------- */
+async function startCamera() {
+  if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia)
+    throw new Error('The camera only works from an https address. Put this file on a web host and open that link on the phone.');
+  if (video.srcObject) video.srcObject.getTracks().forEach(t => t.stop());
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({audio: false,
+      video: {facingMode: {ideal: cfg.front ? 'user' : 'environment'}, width: {ideal: 1280}, height: {ideal: 720}}});
+  } catch (e) {
+    throw new Error(e && e.name === 'NotAllowedError'
+      ? 'The camera is blocked here. Allow it in the browser\'s site settings, then tap Start again.'
+      : 'No camera could be opened. Close other apps using it and tap Start again.');
+  }
+  video.srcObject = stream;
+  await video.play();
+  for (let i = 0; i < 40 && !video.videoWidth; i++) await sleep(50);
+  if (!video.videoWidth) throw new Error('The camera opened but sent no picture. Tap Start again.');
+  S.pw = 640; S.ph = Math.round(640 * video.videoHeight / video.videoWidth);
+  probe.width = S.pw; probe.height = S.ph;
+}
+function grab() { pctx.drawImage(video, 0, 0, S.pw, S.ph); return pctx.getImageData(0, 0, S.pw, S.ph).data; }
+function lockCamera() {          // best effort: stop auto exposure and white balance drifting between frames
+  try {
+    const tr = video.srcObject.getVideoTracks()[0], caps = tr.getCapabilities ? tr.getCapabilities() : {}, adv = {};
+    if ((caps.exposureMode || []).includes('manual')) adv.exposureMode = 'manual';
+    if ((caps.whiteBalanceMode || []).includes('manual')) adv.whiteBalanceMode = 'manual';
+    if ((caps.focusMode || []).includes('manual')) adv.focusMode = 'manual';
+    if (Object.keys(adv).length) tr.applyConstraints({advanced: [adv]}).catch(() => {});
+  } catch (e) {}
+}
+function brightSpot(frame, dark) {
+  const n = S.pw * S.ph, diff = new Float32Array(n);
+  let max = 0;
+  for (let i = 0; i < n; i++) {
+    const k = i * 4, d = (frame[k] + frame[k + 1] + frame[k + 2]) - (dark[k] + dark[k + 1] + dark[k + 2]);
+    diff[i] = d; if (d > max) max = d;
+  }
+  if (max < 90) return null;
+  let sx = 0, sy = 0, c = 0;
+  for (let i = 0; i < n; i++) if (diff[i] >= max * .55) { sx += i % S.pw; sy += (i / S.pw) | 0; c++; }
+  if (c < 6 || c > n * .2) return null;
+  return [sx / c / S.pw, sy / c / S.ph];
+}
+/* The empty table is photographed with the real reef showing, so the camera's colour balance matches play. */
+async function rebase() { S.scene = {type: 'base'}; await sleep(WAIT); S.base = null; await learn(); S.calKey = orientKey(); S.scene = null; S.dirty = false; S.st.forEach(buildSlots); }
+async function calibrate() {
+  S.Hm = null;
+  S.scene = {type: 'black'}; await sleep(WAIT);
+  const dark = grab(), seen = [];
+  for (let i = 0; i < 4; i++) {
+    S.scene = {type: 'dot', i}; await sleep(WAIT);
+    const p = brightSpot(grab(), dark);
+    if (!p) throw new Error('The camera could not find the dots. Dim the room a little, check the camera sees the whole projected picture, and try again.');
+    seen.push(p);
+  }
+  let turn = 0;
+  for (let i = 0; i < 4; i++) {
+    const a = seen[i], b = seen[(i + 1) % 4], c = seen[(i + 2) % 4];
+    turn += Math.sign((b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]));
+  }
+  const hm = homography(DOTS, seen);
+  if (!hm || Math.abs(turn) !== 4) throw new Error('The dots were read in a jumbled order. Keep hands and blocks off the table and try again.');
+  S.scene = {type: 'dot', p: [.5, .5]}; await sleep(WAIT);
+  const mid = brightSpot(grab(), dark), want = project(hm, .5, .5);
+  if (!mid || Math.hypot((mid[0] - want[0]) * S.pw, (mid[1] - want[1]) * S.ph) > S.pw * .04)
+    throw new Error('The line-up did not check out: the centre dot was not where the corners said it would be. Keep the phone completely still and hands out of view, then try again.');
+  S.Hm = hm;
+  await rebase(); lockCamera();
+}
+
+/* ---------- sensing: a piece counts as covered when enough of it is a strong colour the empty table was not ---------- */
+const orientKey = () => ((screen.orientation && screen.orientation.type) || (innerWidth > innerHeight ? 'landscape' : 'portrait')) + ':' + video.videoWidth + 'x' + video.videoHeight;
+/* Each sample is averaged with four neighbours, which smooths out the rainbow patterns a camera sees on a screen. */
+function px(arr, k, out) {
+  const row = S.pw * 8, n = arr.length;
+  let r = 0, g = 0, b = 0, c = 0;
+  for (const o of [0, 8, -8, row, -row]) { const q = k + o; if (q < 0 || q >= n) continue; r += arr[q]; g += arr[q + 1]; b += arr[q + 2]; c++; }
+  out[0] = r / c; out[1] = g / c; out[2] = b / c; return out;
+}
+const P = [0, 0, 0], Q = [0, 0, 0];
+function diffD(r, g, b, br, bg, bb) {
+  const t = r + g + b + 1, u = br + bg + bb + 1;
+  const dc = Math.hypot(r / t - br / u, g / t - bg / u), dl = Math.abs(Math.log((t + 40) / (u + 40)));
+  return Math.max(dc / .05, dl / .22);
+}
+/* Photograph a stretch of the table several times: the average is the empty reference,
+   and how much each spot flickers sets how big a change it takes to count there. */
+async function learn(x0, y0, x1, y1) {
+  const n = 7, frames = [];
+  for (let i = 0; i < n; i++) { frames.push(grab()); await sleep(60); }
+  const W = S.pw, len = W * S.ph * 4;
+  if (!S.base || S.base.length !== len) { S.base = new Float32Array(len); S.noise = new Float32Array(len / 4); x0 = 0; y0 = 0; x1 = W - 1; y1 = S.ph - 1; }
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+    const k = (y * W + x) * 4;
+    for (let c = 0; c < 3; c++) { let m = 0; for (const f of frames) m += f[k + c]; S.base[k + c] = m / n; }
+  }
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+    const k = (y * W + x) * 4; let v = 0;
+    px(S.base, k, Q);
+    for (const f of frames) { px(f, k, P); const d = diffD(P[0], P[1], P[2], Q[0], Q[1], Q[2]); v += d * d; }
+    S.noise[k / 4] = Math.sqrt(v / n);
+  }
+  S.baseBal = balance(S.base);
+}
+/* When a puzzle changes, re-learn just that patch of table once the new outlines are showing. */
+async function relearnPad(st) {
+  if (S.mode !== 'camera' || !S.Hm || !S.base) return;
+  st.learning = true;
+  await sleep(WAIT);
+  try {
+    let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+    const R = st.rad + S.u * 1.4;
+    for (let i = 0; i < 16; i++) {
+      const a = i / 16 * TAU, [u, v] = project(S.Hm, (st.cx + Math.cos(a) * R) / S.W, (st.cy + Math.sin(a) * R) / S.H);
+      x0 = Math.min(x0, u * S.pw); x1 = Math.max(x1, u * S.pw); y0 = Math.min(y0, v * S.ph); y1 = Math.max(y1, v * S.ph);
+    }
+    const cl = (v, m) => Math.max(0, Math.min(m - 1, Math.round(v)));
+    await learn(cl(x0, S.pw), cl(y0, S.ph), cl(x1, S.pw), cl(y1, S.ph));
+  } catch (e) {}
+  st.slots.forEach(sl => { sl.cover = 0; sl.score = 0; });
+  st.learning = false;
+}
+/* The camera's overall colour balance, from a sparse grid over the whole picture. */
+function balance(arr) {
+  let r = 0, g = 0, b = 0;
+  for (let k = 0; k < arr.length; k += 4 * 13) { r += arr[k]; g += arr[k + 1]; b += arr[k + 2]; }
+  return [r || 1, g || 1, b || 1];
+}
+function sense() {
+  if (S.mode !== 'camera' || S.scene || !sheet.hidden || !S.base || S.busy) return;
+  if (S.calKey && orientKey() !== S.calKey) { begin(true); return; }   // the screen or camera turned: line up again
+  const d = grab(), need = cfg.need / 100, now_ = balance(d), gain = S.baseBal.map((v, i) => v / now_[i]);
+  let slots = 0, jumped = 0;
+  const covers = [];
+  const sens = cfg.sens / 100;
+  for (const st of S.st) if (!st.learning) for (const s of st.slots) {
+    let hit = 0;
+    for (const k of s.samples) {
+      px(d, k, P); px(S.base, k, Q);
+      const D = diffD(P[0] * gain[0], P[1] * gain[1], P[2] * gain[2], Q[0], Q[1], Q[2]);
+      if (D * sens > 1 + 4 * S.noise[k >> 2]) hit++;
+    }
+    const c = hit / (s.samples.length || 1);
+    covers.push([s, c]); slots++;
+    if (c >= need && (s.cover || 0) < need * .6) jumped++;
+  }
+  /* Lots of pieces changing at once means the camera or the room changed, not that blocks arrived.
+     Hold the last reading; if the change lasts a few seconds, photograph the table again. */
+  if (jumped >= Math.max(4, slots * .4)) {
+    if ((S.shaky = (S.shaky || 0) + 1) > 18) { S.shaky = 0; rebase(); }
+    return;
+  }
+  S.shaky = 0;
+  for (const [sl, c] of covers) sl.cover = c;
+  for (const st of S.st) {
+    if (st.learning) continue;
+    let allEmpty = true, anyFull = false;
+    st.slots.forEach((s, i) => {
+      if (s.cover >= need * .6) allEmpty = false;
+      if (s.cover >= need) anyFull = true;
+      if (st.phase !== 'play') return;
+      s.score = Math.max(0, Math.min(3, s.score + (s.cover >= need ? 1 : s.cover < need * .6 ? -1 : 0)));
+      if (!s.filled && s.score >= 3) fill(st, i);
+
+    });
+    if (st.phase === 'clear') {
+      st.emptyRun = allEmpty ? st.emptyRun + 1 : 0;
+      st.fullRun = anyFull ? 0 : (st.fullRun || 0) + 1;
+      const waited = now - st.t0;
+      if ((st.emptyRun >= 4 && waited > 2.4) || (waited > 8 && st.fullRun > 12)) nextPuzzle(st);
+      else if (waited > 6 && !st.nagged) { st.nagged = true; speak('Take the blocks away for a new puzzle'); }
+    }
+  }
+}
+setInterval(sense, 160);
+
+/* ---------- sound ---------- */
+let ac = null;
+function initAudio() { try { ac = ac || new (window.AudioContext || window.webkitAudioContext)(); ac.resume(); } catch (e) {} }
+function tone(freq, delay = 0, len = .22, type = 'triangle') {
+  if (!ac || !cfg.sound || S.mode === 'attract') return;
+  const o = ac.createOscillator(), g = ac.createGain(), t = ac.currentTime + delay;
+  o.type = type; o.frequency.value = freq;
+  g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.2, t + .02); g.gain.exponentialRampToValueAtTime(.001, t + len);
+  o.connect(g).connect(ac.destination); o.start(t); o.stop(t + len + .05);
+}
+function speak(text) {
+  if (!cfg.sound || S.mode === 'attract' || !('speechSynthesis' in window)) return;
+  try { if (speechSynthesis.pending) return; const u = new SpeechSynthesisUtterance(text); u.rate = .9; u.pitch = 1.25; speechSynthesis.speak(u); } catch (e) {}
+}
+
+/* ---------- game flow ---------- */
+function nextPuzzle(st) {
+  let i = S.cursor++ % PUZZLES.length;
+  for (let k = 0; k < PUZZLES.length && S.st.some(o => o !== st && o.idx === i); k++) i = S.cursor++ % PUZZLES.length;   // pads never repeat each other
+  st.idx = i; st.phase = 'play'; st.t0 = st.tin = now; st.emptyRun = 0; st.fullRun = 0; st.nagged = false; st.slots = []; st.auto = now + 2 + Math.random() * 5;
+  if (S.mode === 'camera' && !S.scene) setTimeout(() => relearnPad(st), 0);
+  buildSlots(st);
+}
+function sparkle(x, y, n, speed, cols) {
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * TAU, v = speed * (.3 + Math.random());
+    S.parts.push({type: 'star', x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 0, max: .5 + Math.random() * .7, r: S.u * (.1 + Math.random() * .14), c: cols[i % cols.length]});
+  }
+}
+function spawn(pz, x, y, rot, hold, home) {
+  S.fish.push({pz, x, y, rot, head: rot + UP, turn: 0, age: hold ? 0 : 9, hold: hold || 0, seed: Math.random() * 10, alpha: 1, home: home || null});
+  const live = S.fish.filter(c => !c.dying);
+  if (live.length > 16) live[0].dying = true;
+}
+function fill(st, i) {
+  const s = st.slots[i]; if (!s || s.filled) return;
+  s.filled = true; s.score = 3;
+  sparkle(s.mx, s.my, 7, S.u * 2.5, ['#fff', '#fff6b0']);
+  tone([523, 587, 659, 784, 880, 988, 1047][i % 7]);
+  if (!st.slots.every(q => q.filled)) return;
+  const pz = PUZZLES[st.idx];
+  spawn(pz, st.cx, st.cy, st.rot, 1.2, st);
+  sparkle(st.cx, st.cy, 26, S.u * 5, ['#fff', '#ffd23f', '#7fe3ff', '#ff8ab5']);
+  S.parts.push({type: 'wave', x: st.cx, y: st.cy, life: 0, max: .9}, {type: 'wave', x: st.cx, y: st.cy, life: -.25, max: .9});
+  [523, 659, 784, 1047, 1319].forEach((f, k) => tone(f, .12 * k, .35));
+  setTimeout(() => speak('You made a ' + pz.name + '!'), 400);
+  st.phase = 'clear'; st.t0 = now; st.emptyRun = 0; st.slots.forEach(q => { q.filled = false; q.score = 0; });
+}
+
+/* ---------- the reef: painted once per layout onto its own canvas ---------- */
+function gem(x, y, r, deg, base) {
+  facet(ngon(6, r, x, y, deg), base, 1.1);
+  facet(ngon(6, r * .52, x - r * .1, y - r * .14, deg), base, .5);
+}
+function seaFan(x, y, r) {
+  dot(x, y, r, '#35bfd6'); dot(x, y, r * .92, '#4fd0e2');
+  ctx.lineWidth = r * .025;
+  for (let i = 0; i < 20; i++) { const a = i / 20 * TAU; line('rgba(255,255,255,.75)', x + Math.cos(a) * r * .18, y + Math.sin(a) * r * .18, x + Math.cos(a) * r * .88, y + Math.sin(a) * r * .88); }
+  ctx.beginPath(); ctx.arc(x, y, r * .55, 0, TAU); ctx.strokeStyle = 'rgba(255,255,255,.55)'; ctx.stroke();
+  dot(x, y, r * .12, '#fff');
+}
+function fanCoral(x, y, r, ang) {
+  ctx.save(); ctx.translate(x, y); ctx.rotate(ang);
+  ctx.beginPath(); ctx.moveTo(0, 0); ctx.arc(0, 0, r, Math.PI * 1.1, Math.PI * 1.9); ctx.closePath(); ctx.fillStyle = '#f2679a'; ctx.fill();
+  ctx.lineWidth = r * .06;
+  for (let i = 0; i < 6; i++) { const a = Math.PI * (1.16 + i * .136); line('rgba(255,235,242,.85)', 0, 0, Math.cos(a) * r * .86, Math.sin(a) * r * .86); }
+  ctx.restore();
+}
+function tube(x, y, w, len, ang) {
+  ctx.save(); ctx.translate(x, y); ctx.rotate(ang);
+  ctx.lineCap = 'round'; ctx.lineWidth = w; line('#ea6480', 0, 0, 0, -len);
+  ctx.beginPath(); ctx.ellipse(0, -len, w * .34, w * .34, 0, 0, TAU); ctx.fillStyle = '#a8355a'; ctx.fill();
+  ctx.restore();
+}
+function anemone(x, y, r, c1, c2) {
+  ctx.lineWidth = r * .16;
+  for (let i = 0; i < 18; i++) { const a = i / 18 * TAU, q = i % 2 ? r : r * .72; line(i % 2 ? c1 : c2, x, y, x + Math.cos(a) * q, y + Math.sin(a) * q); }
+  dot(x, y, r * .3, '#7a3f8a'); dot(x, y, r * .14, c1);
+}
+function leaf(x, y, r, ang) {
+  ctx.save(); ctx.translate(x, y); ctx.rotate(ang);
+  path([[0, -r], [r * .42, 0], [0, r * .5]]); ctx.fillStyle = '#2f9cec'; ctx.fill();
+  path([[0, -r], [-r * .42, 0], [0, r * .5]]); ctx.fillStyle = '#4cc0f7'; ctx.fill();
+  ctx.restore();
+}
+function cluster(x, y, s, seed) {
+  const R = i => rnd(seed + i), PURPLE = ['#8f86e8', '#a394f0', '#7b74d9'];
+  seaFan(x + (R(1) - .5) * s * 3, y + (R(2) - .5) * s * 3, s * (1.3 + R(3) * .7));
+  for (let i = 0; i < 3; i++) leaf(x + (R(10 + i) - .5) * s * 3.2, y + (R(14 + i) - .5) * s * 3.2, s * (.8 + R(18 + i) * .5), R(22 + i) * TAU);
+  for (let i = 0; i < 3; i++) gem(x + (R(30 + i) - .5) * s * 2.6, y + (R(34 + i) - .5) * s * 2.6, s * (.7 + R(38 + i) * .7), R(42 + i) * 60, PURPLE[i]);
+  for (let i = 0; i < 2; i++) tube(x + (R(50 + i) - .5) * s * 2.4, y + (R(52 + i) - .5) * s * 2.4, s * .42, s * (.5 + R(54 + i) * .5), (R(56 + i) - .5) * 1.4);
+  for (let i = 0; i < 4; i++) fanCoral(x + (R(60 + i) - .5) * s * 3.4, y + (R(66 + i) - .5) * s * 3.4, s * (.5 + R(72 + i) * .35), R(78 + i) * TAU);
+  anemone(x + (R(90) - .5) * s * 1.6, y + (R(91) - .5) * s * 1.6, s * .62, '#ffe066', '#ff8ab5');
+  if (R(92) > .4) anemone(x + (R(93) - .5) * s * 2.6, y + (R(94) - .5) * s * 2.6, s * .42, '#3a2a5e', '#8a6ad0');
+}
+function buildReef() {
+  const c = S.bg || (S.bg = document.createElement('canvas')), W = S.W, H = S.H, F = S.free;
+  c.width = W; c.height = H; ctx = c.getContext('2d');
+  const g = ctx.createRadialGradient(F.x + F.w / 2, F.y + F.h / 2, 0, F.x + F.w / 2, F.y + F.h / 2, Math.hypot(F.w, F.h) * .56);
+  g.addColorStop(0, '#fcfffe'); g.addColorStop(.55, '#dcf6f0'); g.addColorStop(1, '#8fdcd6');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  const s = Math.min(F.w, F.h) * .055;
+  for (let i = 0; i < 520; i++) dot(F.x + rnd(i) * F.w, F.y + rnd(i + 1000) * F.h, s * (.03 + rnd(i + 2000) * .07), `rgba(50,160,165,${.12 + rnd(i + 3000) * .22})`);
+  ctx.lineWidth = s * .05;
+  for (let i = 0; i < 30; i++) { ctx.beginPath(); ctx.arc(F.x + rnd(i + 40) * F.w, F.y + rnd(i + 80) * F.h, s * (.12 + rnd(i + 120) * .2), 0, TAU); ctx.strokeStyle = 'rgba(255,255,255,.95)'; ctx.stroke(); }
+  const wide = F.w >= F.h, at = (a, b) => wide ? [F.x + a * F.w, F.y + b * F.h] : [F.x + b * F.w, F.y + a * F.h];
+  [[.0, .5, 1.7], [1, .5, 1.7], [.3, .46, .8], [.53, .56, .9], [.75, .44, .8], [.14, .6, .55], [.88, .36, .55]]
+    .forEach(([a, b, k], i) => { const [x, y] = at(a, b); cluster(x, y, s * k, i * 101 + 7); });
+  ctx = mainCtx;
+}
+
+/* ---------- creatures ---------- */
+function stepFish(c, dt, t) {
+  c.age += dt;
+  if (c.dying) c.alpha = Math.max(0, c.alpha - dt);
+  if (c.age < c.hold) return;
+  const pz = c.pz, u = S.u, F = S.free, m = u * 2.2;
+  c.turn += (Math.random() - .5) * dt * 7; c.turn *= Math.pow(.25, dt); c.head += c.turn * dt;
+  if (c.x < F.x + m || c.x > F.x + F.w - m || c.y < F.y + m || c.y > F.y + F.h - m)
+    c.head += turnTo(Math.atan2(F.y + F.h / 2 - c.y, F.x + F.w / 2 - c.x), c.head) * dt * 2.5;
+  for (const st of S.st) {                           // swim around the puzzle pads, never across them
+    const d = Math.hypot(c.x - st.cx, c.y - st.cy), R = u * 4.2;
+    if (d < R) c.head += turnTo(Math.atan2(c.y - st.cy, c.x - st.cx), c.head) * dt * 5 * (1 - d / R);
+  }
+  let sp = pz.speed * u; if (pz.pulse) sp *= .35 + 1.3 * Math.max(0, Math.sin(t * 2.6 + c.seed));
+  c.x = Math.min(F.x + F.w - u * .5, Math.max(F.x + u * .5, c.x + Math.cos(c.head) * sp * dt));
+  c.y = Math.min(F.y + F.h - u * .5, Math.max(F.y + u * .5, c.y + Math.sin(c.head) * sp * dt));
+  for (const st of S.st) {                           // a hard keep-out ring around each puzzle
+    const dx = c.x - st.cx, dy = c.y - st.cy, d = Math.hypot(dx, dy) || 1, R = (st.rad || u * 3) + u * 1.2;
+    if (c.home === st) { if (d > R) c.home = null; continue; }
+    if (d < R) { c.x = st.cx + dx / d * R; c.y = st.cy + dy / d * R; }
+  }
+  if (pz.spin) c.rot += dt * .5; else c.rot += turnTo(c.head - pz.fwd, c.rot) * Math.min(1, dt * 3.5);
+}
+function drawFish(c, t) {
+  const pz = c.pz, u = S.u;
+  const pop = c.age < .5 ? 1 + .3 * Math.sin(c.age / .5 * Math.PI) : 1, wig = c.age < c.hold ? Math.sin(c.age * 18) * .07 : 0;
+  ctx.save(); ctx.globalAlpha = c.alpha; ctx.translate(c.x, c.y); ctx.rotate(c.rot + wig);
+  ctx.scale(u * pop, u * pop * (pz.pulse && c.age > c.hold ? 1 + .08 * Math.sin(t * 2.6 + c.seed) : 1)); ctx.translate(-pz.ox, -pz.oy);
+  ctx.lineJoin = 'round'; ctx.fillStyle = 'rgba(20,70,90,.16)';
+  for (const p of pz.pieces) { ctx.save(); ctx.translate(.1, .14); path(p.pts); ctx.fill(); ctx.restore(); }
+  if (pz.under) pz.under(t + c.seed);
+  pz.pieces.forEach((p, i) => facet(p.pts, pz.cols[i]));
+  pz.over(t + c.seed);
+  ctx.restore();
+}
+
+/* ---------- puzzle pads ---------- */
+function drawStation(st, t) {
+  if (S.mode === 'camera' && st.phase === 'clear' && !S.scene && t - st.t0 > 2.4) {   // "take the blocks away" ring, well outside the pieces
+    const R = (st.rad || S.u * 3) + S.u * 1.6;
+    ctx.save(); ctx.setLineDash([S.u * .5, S.u * .4]); ctx.lineDashOffset = -t * S.u * 1.5; ctx.lineWidth = S.u * .18;
+    ctx.strokeStyle = `rgba(255,255,255,${.55 + .35 * Math.sin(t * 4)})`; ctx.beginPath(); ctx.arc(st.cx, st.cy, R, 0, TAU); ctx.stroke(); ctx.restore();
+  }
+  const pz = PUZZLES[st.idx], g = cfg.light, a = Math.min(1, (t - st.tin) / .35), k = .55 + .45 * (1 + 2.7 * Math.pow(a - 1, 3) + 1.7 * Math.pow(a - 1, 2));
+  ctx.save(); ctx.translate(st.cx, st.cy); ctx.rotate(st.rot); ctx.scale(S.u * k, S.u * k); ctx.translate(-pz.ox, -pz.oy);
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  ctx.lineWidth = 1.75; ctx.strokeStyle = 'rgba(20,50,70,.16)'; for (const p of pz.pieces) { path(p.pts); ctx.stroke(); }
+  ctx.lineWidth = 1.45; ctx.strokeStyle = ctx.fillStyle = '#2b2a35'; for (const p of pz.pieces) { path(p.pts); ctx.stroke(); ctx.fill(); }
+  const dim = st.phase === 'clear' && S.mode !== 'camera';
+  ctx.lineWidth = .17; ctx.strokeStyle = dim ? 'rgba(255,255,255,.4)' : '#fff'; for (const p of pz.pieces) { path(p.pts); ctx.stroke(); }
+  ctx.fillStyle = `rgb(${g},${g},${g})`; for (const p of pz.pieces) { path(p.pts); ctx.fill(); }
+  ctx.lineWidth = .035; ctx.strokeStyle = dim ? 'rgba(255,255,255,.2)' : 'rgba(255,255,255,.5)'; for (const p of pz.pieces) { path(p.pts); ctx.stroke(); }
+  const learningScene = S.scene && S.scene.type === 'base';
+  if (!learningScene) pz.pieces.forEach((p, i) => {
+    const sl = st.slots[i]; if (!sl) return;
+    if (sl.filled) { facet(p.pts, BLOCK[p.type], .8); return; }
+    const c = Math.min(1, (sl.cover || 0) / (cfg.need / 100));
+  });
+  ctx.restore();
+}
+function drawParts(dt) {
+  S.parts = S.parts.filter(p => (p.life += dt) < p.max);
+  for (const p of S.parts) {
+    if (p.life < 0) continue;
+    const f = p.life / p.max; ctx.globalAlpha = 1 - f;
+    if (p.type === 'wave') { ctx.beginPath(); ctx.arc(p.x, p.y, S.u * (.6 + f * 4.5), 0, TAU); ctx.lineWidth = S.u * .22 * (1 - f); ctx.strokeStyle = '#fff'; ctx.stroke(); continue; }
+    p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= .97; p.vy *= .97;
+    ctx.beginPath();
+    for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4 + f * 3, q = (i % 2 ? .35 : 1) * p.r * (1 - f * .5); ctx.lineTo(p.x + Math.cos(a) * q, p.y + Math.sin(a) * q); }
+    ctx.closePath(); ctx.fillStyle = p.c; ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+function drawWater(t) {                                  // drifting light and slow ripples over the painted reef
+  const F = S.free, u = S.u;
+  for (let i = 0; i < 4; i++) {
+    const x = F.x + F.w * (.5 + .42 * Math.sin(t * .11 + i * 1.7)), y = F.y + F.h * (.5 + .4 * Math.cos(t * .09 + i * 2.3)), r = Math.min(F.w, F.h) * .3;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, 'rgba(255,255,255,.2)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g; ctx.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+  for (let i = 0; i < 9; i++) {
+    const per = 5 + rnd(i + 500) * 4, ph = (t / per + rnd(i + 510)) % 1, cyc = Math.floor(t / per + rnd(i + 510));
+    ctx.beginPath(); ctx.arc(F.x + rnd(i * 31 + cyc) * F.w, F.y + rnd(i * 57 + cyc + 9) * F.h, u * (.15 + ph * .9), 0, TAU);
+    ctx.lineWidth = u * .04; ctx.strokeStyle = `rgba(255,255,255,${.8 * (1 - ph)})`; ctx.stroke();
+  }
+}
+let last = 0;
+function frame(ms) {
+  now = ms / 1000; const dt = Math.min(.05, now - last); last = now, ctx = mainCtx;
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.fillStyle = '#000'; ctx.fillRect(0, 0, S.W, S.H);
+  const sc = S.scene;
+  try {
+    if (sc && sc.type === 'dot') { const [x, y] = sc.p || DOTS[sc.i]; dot(x * S.W, y * S.H, Math.min(S.W, S.H) * .06, '#fff'); }
+    else if (!sc || sc.type === 'base') {
+      if (S.bg) ctx.drawImage(S.bg, 0, 0);
+      if (!sc) {
+        drawWater(now);
+        S.fish = S.fish.filter(c => c.alpha > 0);
+        for (const c of S.fish) { stepFish(c, dt, now); if (c.age >= c.hold + .7) drawFish(c, now); }
+      }
+      const cam = S.mode === 'camera' && !sc;
+      for (const st of S.st) if (!cam || st.phase !== 'play') drawStation(st, now);
+      if (cam) { for (const c of S.fish) if (c.age < c.hold + .7) drawFish(c, now); drawParts(dt); }
+      for (const st of S.st) if (cam && st.phase === 'play') drawStation(st, now);
+      for (const st of S.st) {
+        if (sc) continue;
+        if (S.mode !== 'camera' && st.phase === 'clear' && now - st.t0 > 1.8) nextPuzzle(st);
+        if (S.mode === 'attract' && st.phase === 'play' && now > st.auto) { st.auto = now + .7; fill(st, st.slots.findIndex(s => !s.filled)); }
+      }
+      if (!sc && !cam) { for (const c of S.fish) if (c.age < c.hold + .7) drawFish(c, now); drawParts(dt); }
+    }
+  } catch (e) { console.error(e); }
+  try { drawAim(); } catch (e) {}
+  requestAnimationFrame(frame);
+}
+
+/* ---------- controls ---------- */
+function showSheet(open) {
+  sheet.hidden = !open; $('gear').hidden = open;
+  const live = S.mode !== 'attract';
+  $('resume').hidden = !live; $('next').hidden = !live; $('howto').hidden = live;
+  $('go').textContent = S.mode === 'camera' ? 'Line up camera again' : 'Start with camera';
+  $('go').classList.toggle('primary', !live); $('resume').classList.toggle('primary', live);
+  $('demo').hidden = S.mode === 'demo';
+  layout();
+}
+async function backToPlay() {
+  showSheet(false);
+  if (S.mode === 'camera' && S.Hm) { try { await rebase(); } catch (e) {} }   // the table view changed, so photograph it empty again
+}
+function goBig() {
+  try { const p = document.documentElement.requestFullscreen && document.documentElement.requestFullscreen(); if (p) p.then(() => { try { screen.orientation.lock(screen.orientation.type).catch(() => {}); } catch (e) {} }).catch(() => {}); } catch (e) {}
+  try { if (navigator.wakeLock) navigator.wakeLock.request('screen').catch(() => {}); } catch (e) {}
+}
+/* The line-up between projector and camera is saved, so a fixed rig only flashes the dots once. */
+const LINEUP = 'blockTableLineup';
+function loadLineup() {
+  try { const m = JSON.parse(localStorage.getItem(LINEUP) || 'null'); return Array.isArray(m) && m.length === 8 && m.every(Number.isFinite) ? m : null; } catch (e) { return null; }
+}
+async function begin(fresh) {
+  if (S.busy) return false;
+  S.busy = true; initAudio(); goBig(); note('Opening the camera…');
+  try {
+    await startCamera();
+    S.mode = 'camera'; note(''); showSheet(false);
+    const saved = fresh ? null : loadLineup();
+    if (saved) { S.Hm = saved; await rebase(); lockCamera(); }
+    else { await calibrate(); try { localStorage.setItem(LINEUP, JSON.stringify(S.Hm)); } catch (e) {} }
+    S.cursor = 0; S.st.forEach(nextPuzzle);
+    return true;
+  } catch (e) {
+    S.scene = null; S.Hm = null;
+    if (S.mode === 'camera') S.mode = 'attract';
+    showSheet(true); note(e.message); showAim();
+    return false;
+  } finally { S.busy = false; }
+}
+function showAim() { if (video.srcObject) $('aim').hidden = false; }
+const aimCv = $('aimView'), aimCtx = aimCv.getContext('2d');
+function drawAim() {
+  if ($('aim').hidden || sheet.hidden || !video.videoWidth) return;
+  const w = 480, h = Math.round(480 * video.videoHeight / video.videoWidth);
+  if (aimCv.width !== w || aimCv.height !== h) { aimCv.width = w; aimCv.height = h; }
+  aimCtx.drawImage(video, 0, 0, w, h);
+  if (!S.Hm) return;
+  aimCtx.lineWidth = 2.5; aimCtx.strokeStyle = '#ffd23f';
+  for (const st of S.st) for (const sl of st.slots) {
+    aimCtx.beginPath();
+    sl.pts.forEach(([x, y], i) => { const [u, v] = project(S.Hm, x / S.W, y / S.H); i ? aimCtx.lineTo(u * w, v * h) : aimCtx.moveTo(u * w, v * h); });
+    aimCtx.closePath(); aimCtx.stroke();
+  }
+}
+$('aimBtn').onclick = async () => {
+  if (video.srcObject && video.srcObject.active) return showAim();
+  note('Opening the camera…');
+  try { await startCamera(); note(''); showAim(); } catch (e) { note(e.message); }
+};
+$('go').onclick = () => begin(true);
+addEventListener('keydown', e => { if ((e.key === 'c' || e.key === 'C') && S.mode === 'camera') begin(true); });
+$('demo').onclick = () => { initAudio(); S.mode = 'demo'; S.Hm = null; note(''); showSheet(false); S.cursor = 0; S.st.forEach(nextPuzzle); };
+$('resume').onclick = backToPlay;
+$('next').onclick = async () => { await backToPlay(); S.st.forEach(nextPuzzle); };
+$('gear').onclick = () => showSheet(true);
+
+cv.addEventListener('pointerdown', e => {
+  if (S.mode !== 'demo' || S.scene) return;
+  const r = cv.getBoundingClientRect(), x = (e.clientX - r.left) / r.width * S.W, y = (e.clientY - r.top) / r.height * S.H;
+  const st = S.st.slice().sort((a, b) => Math.hypot(a.cx - x, a.cy - y) - Math.hypot(b.cx - x, b.cy - y))[0];
+  if (!st || Math.hypot(st.cx - x, st.cy - y) > S.u * 4.5 || st.phase !== 'play') return;
+  let i = st.slots.findIndex(s => !s.filled && inside(s.pts, x, y));
+  if (i < 0) i = st.slots.findIndex(s => !s.filled);
+  fill(st, i);
+});
+
+const knobs = {side: v => v, size: v => v + '%', light: v => Math.round(v / 2.55) + '%', need: v => v + '%', sens: v => v + '%'};
+for (const k in knobs) {
+  const el = $(k), out = $(k + 'Out');
+  el.value = cfg[k]; out.textContent = knobs[k](cfg[k]);
+  el.oninput = () => { cfg[k] = +el.value; out.textContent = knobs[k](cfg[k]); save(); layout(); };
+}
+for (const k of ['sound', 'front']) {
+  const el = $(k); el.checked = cfg[k];
+  el.onchange = () => { cfg[k] = el.checked; save(); };
+}
+addEventListener('resize', layout);
+window.blockTable = S;          // handy for poking at state from the console
+layout();
+for (let i = 0; i < 6; i++) spawn(PUZZLES[(i * 3 + 1) % PUZZLES.length], S.free.x + S.free.w * (.2 + rnd(i + 5) * .6), S.free.y + S.free.h * (.35 + rnd(i + 9) * .3), rnd(i) * TAU, 0);
+requestAnimationFrame(frame);
+if (location.hash === '#demo') $('demo').click();
+if (location.hash === '#kiosk') {          // a fixed rig: start by itself, reusing the saved line-up
+  document.documentElement.classList.add('kiosk');
+  (async () => { for (let i = 0; i < 8; i++) { if (await begin(false)) return; await sleep(4000); } })();
+}
+})();
+</script>
+</body>
+</html>
