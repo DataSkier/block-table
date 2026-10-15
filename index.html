@@ -127,6 +127,9 @@ summary{cursor:pointer;font-weight:700;padding:10px 0}
       <label class="knob" for="need">Fill needed <output id="needOut"></output>
         <input id="need" type="range" min="25" max="85" step="5">
         <small>How much of each piece has to be covered. Lower is more forgiving.</small></label>
+      <label class="knob" for="sens">Sensitivity <output id="sensOut"></output>
+        <input id="sens" type="range" min="50" max="250" step="10">
+        <small>How small a change the camera counts as a block. Raise it if blocks are missed; lower it if shapes fill by themselves.</small></label>
       <label class="check" for="sound"><input id="sound" type="checkbox"> Sounds and spoken names</label>
       <label class="check" for="front"><input id="front" type="checkbox"> Use the front camera</label>
     </div>
@@ -146,7 +149,7 @@ const sheet = $('sheet'), statusEl = $('status');
 const TAU = Math.PI * 2, h = Math.sqrt(3) / 2;
 
 /* ---------- settings ---------- */
-const cfg = {side: 3, size: 6, light: 105, need: 50, sound: true, front: false};
+const cfg = {side: 3, size: 6, light: 105, need: 50, sens: 100, sound: true, front: false};
 try { Object.assign(cfg, JSON.parse(localStorage.getItem('blockTable3') || '{}')); } catch (e) {}
 const save = () => { try { localStorage.setItem('blockTable3', JSON.stringify(cfg)); } catch (e) {} };
 
@@ -362,7 +365,7 @@ function brightSpot(frame, dark) {
   return [sx / c / S.pw, sy / c / S.ph];
 }
 /* The empty table is photographed with the real reef showing, so the camera's colour balance matches play. */
-async function rebase() { S.scene = {type: 'base'}; await sleep(WAIT); S.base = grab(); S.baseBal = balance(S.base); S.calKey = orientKey(); S.scene = null; S.dirty = false; S.st.forEach(buildSlots); }
+async function rebase() { S.scene = {type: 'base'}; await sleep(WAIT); S.base = null; await learn(); S.calKey = orientKey(); S.scene = null; S.dirty = false; S.st.forEach(buildSlots); }
 async function calibrate() {
   S.Hm = null;
   S.scene = {type: 'black'}; await sleep(WAIT);
@@ -398,6 +401,48 @@ function px(arr, k, out) {
   out[0] = r / c; out[1] = g / c; out[2] = b / c; return out;
 }
 const P = [0, 0, 0], Q = [0, 0, 0];
+function diffD(r, g, b, br, bg, bb) {
+  const t = r + g + b + 1, u = br + bg + bb + 1;
+  const dc = Math.hypot(r / t - br / u, g / t - bg / u), dl = Math.abs(Math.log((t + 40) / (u + 40)));
+  return Math.max(dc / .05, dl / .22);
+}
+/* Photograph a stretch of the table several times: the average is the empty reference,
+   and how much each spot flickers sets how big a change it takes to count there. */
+async function learn(x0, y0, x1, y1) {
+  const n = 7, frames = [];
+  for (let i = 0; i < n; i++) { frames.push(grab()); await sleep(60); }
+  const W = S.pw, len = W * S.ph * 4;
+  if (!S.base || S.base.length !== len) { S.base = new Float32Array(len); S.noise = new Float32Array(len / 4); x0 = 0; y0 = 0; x1 = W - 1; y1 = S.ph - 1; }
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+    const k = (y * W + x) * 4;
+    for (let c = 0; c < 3; c++) { let m = 0; for (const f of frames) m += f[k + c]; S.base[k + c] = m / n; }
+  }
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+    const k = (y * W + x) * 4; let v = 0;
+    px(S.base, k, Q);
+    for (const f of frames) { px(f, k, P); const d = diffD(P[0], P[1], P[2], Q[0], Q[1], Q[2]); v += d * d; }
+    S.noise[k / 4] = Math.sqrt(v / n);
+  }
+  S.baseBal = balance(S.base);
+}
+/* When a puzzle changes, re-learn just that patch of table once the new outlines are showing. */
+async function relearnPad(st) {
+  if (S.mode !== 'camera' || !S.Hm || !S.base) return;
+  st.learning = true;
+  await sleep(WAIT);
+  try {
+    let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+    const R = st.rad + S.u * 1.4;
+    for (let i = 0; i < 16; i++) {
+      const a = i / 16 * TAU, [u, v] = project(S.Hm, (st.cx + Math.cos(a) * R) / S.W, (st.cy + Math.sin(a) * R) / S.H);
+      x0 = Math.min(x0, u * S.pw); x1 = Math.max(x1, u * S.pw); y0 = Math.min(y0, v * S.ph); y1 = Math.max(y1, v * S.ph);
+    }
+    const cl = (v, m) => Math.max(0, Math.min(m - 1, Math.round(v)));
+    await learn(cl(x0, S.pw), cl(y0, S.ph), cl(x1, S.pw), cl(y1, S.ph));
+  } catch (e) {}
+  st.slots.forEach(sl => { sl.cover = 0; sl.score = 0; });
+  st.learning = false;
+}
 /* The camera's overall colour balance, from a sparse grid over the whole picture. */
 function balance(arr) {
   let r = 0, g = 0, b = 0;
@@ -410,15 +455,13 @@ function sense() {
   const d = grab(), need = cfg.need / 100, now_ = balance(d), gain = S.baseBal.map((v, i) => v / now_[i]);
   let slots = 0, jumped = 0;
   const covers = [];
-  for (const st of S.st) for (const s of st.slots) {
+  const sens = cfg.sens / 100;
+  for (const st of S.st) if (!st.learning) for (const s of st.slots) {
     let hit = 0;
     for (const k of s.samples) {
-      px(d, k, P); const r = P[0] * gain[0], g = P[1] * gain[1], b = P[2] * gain[2], sum = r + g + b;
-      if (sum < 36) continue;
-      const mx = Math.max(r, g, b);
-      if ((mx - Math.min(r, g, b)) / mx < .3) continue;
-      const [br, bg, bb] = px(S.base, k, Q), bs = br + bg + bb || 1;
-      if (Math.hypot(r / sum - br / bs, g / sum - bg / bs) >= .07) hit++;
+      px(d, k, P); px(S.base, k, Q);
+      const D = diffD(P[0] * gain[0], P[1] * gain[1], P[2] * gain[2], Q[0], Q[1], Q[2]);
+      if (D * sens > 1 + 4 * S.noise[k >> 2]) hit++;
     }
     const c = hit / (s.samples.length || 1);
     covers.push([s, c]); slots++;
@@ -433,13 +476,14 @@ function sense() {
   S.shaky = 0;
   for (const [sl, c] of covers) sl.cover = c;
   for (const st of S.st) {
+    if (st.learning) continue;
     let allEmpty = true;
     st.slots.forEach((s, i) => {
       if (s.cover > .2) allEmpty = false;
       if (st.phase !== 'play') return;
       s.score = Math.max(0, Math.min(3, s.score + (s.cover >= need ? 1 : s.cover < need * .6 ? -1 : 0)));
       if (!s.filled && s.score >= 3) fill(st, i);
-      else if (s.filled && s.score === 0) s.filled = false;
+
     });
     if (st.phase === 'clear') {
       st.emptyRun = allEmpty ? st.emptyRun + 1 : 0;
@@ -469,6 +513,7 @@ function nextPuzzle(st) {
   let i = S.cursor++ % PUZZLES.length;
   for (let k = 0; k < PUZZLES.length && S.st.some(o => o !== st && o.idx === i); k++) i = S.cursor++ % PUZZLES.length;   // pads never repeat each other
   st.idx = i; st.phase = 'play'; st.t0 = st.tin = now; st.emptyRun = 0; st.slots = []; st.auto = now + 2 + Math.random() * 5;
+  if (S.mode === 'camera' && !S.scene) setTimeout(() => relearnPad(st), 0);
   buildSlots(st);
 }
 function sparkle(x, y, n, speed, cols) {
@@ -606,7 +651,13 @@ function drawStation(st, t) {
   ctx.lineWidth = .17; ctx.strokeStyle = dim ? 'rgba(255,255,255,.4)' : '#fff'; for (const p of pz.pieces) { path(p.pts); ctx.stroke(); }
   ctx.fillStyle = `rgb(${g},${g},${g})`; for (const p of pz.pieces) { path(p.pts); ctx.fill(); }
   ctx.lineWidth = .035; ctx.strokeStyle = dim ? 'rgba(255,255,255,.2)' : 'rgba(255,255,255,.5)'; for (const p of pz.pieces) { path(p.pts); ctx.stroke(); }
-  if (S.mode !== 'camera') pz.pieces.forEach((p, i) => { if (st.slots[i] && st.slots[i].filled) facet(p.pts, BLOCK[p.type], .8); });
+  const learningScene = S.scene && S.scene.type === 'base';
+  if (!learningScene) pz.pieces.forEach((p, i) => {
+    const sl = st.slots[i]; if (!sl) return;
+    if (sl.filled) { facet(p.pts, BLOCK[p.type], .8); return; }
+    const c = Math.min(1, (sl.cover || 0) / (cfg.need / 100));
+    if (S.mode === 'camera' && st.phase === 'play' && c > .15) { path(p.pts); ctx.lineWidth = .26; ctx.strokeStyle = `rgba(255,236,140,${.25 + .6 * c})`; ctx.stroke(); }
+  });
   ctx.restore();
 }
 function drawParts(dt) {
@@ -743,7 +794,7 @@ cv.addEventListener('pointerdown', e => {
   fill(st, i);
 });
 
-const knobs = {side: v => v, size: v => v + '%', light: v => Math.round(v / 2.55) + '%', need: v => v + '%'};
+const knobs = {side: v => v, size: v => v + '%', light: v => Math.round(v / 2.55) + '%', need: v => v + '%', sens: v => v + '%'};
 for (const k in knobs) {
   const el = $(k), out = $(k + 'Out');
   el.value = cfg[k]; out.textContent = knobs[k](cfg[k]);
