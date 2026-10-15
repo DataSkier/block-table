@@ -20,4 +20,13 @@ Games on this site share one origin, so anything a game saves in the browser (se
 ## Running a game on a fixed rig
 
 Open `games/block-table/#kiosk` to start by itself and reuse the saved camera line-up.
-`#demo` starts tap-to-play mode without a camera.
+`#demo` starts tap-to-play mode without a camera. Both work for `games/shadow-puppets/` too.
+
+## Shadow Puppets
+
+Hands held in the projector beam throw a shadow on the bright stage; the camera reads that shape and matches it against six hand-shadow animals (rabbit, dog, bird, swan, deer, crocodile). When one matches and holds for a moment, that animal's short film plays.
+
+- By default the game asks for one animal at a time. Untick *Ask for one animal at a time* under Adjust to let any animal play its film; that mode is pickier, and the bird and dog get mixed up more than the others.
+- *Check camera aim* shows red dots where the camera sees shadow, plus each animal's live match score. Use it with the *Match needed* and *Sensitivity* sliders to tune for your room.
+- The films are drawn live on the canvas. To use real clips instead, drop an mp4 named after the animal into `games/shadow-puppets/videos/` (`rabbit.mp4`, `dog.mp4`, `bird.mp4`, `swan.mp4`, `deer.mp4`, `crocodile.mp4`). Any clip that's there plays in place of the drawn film; the rest keep their drawn film.
+- The camera line-up from Block Table is reused if Shadow Puppets hasn't saved its own yet.

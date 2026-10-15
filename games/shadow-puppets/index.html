@@ -1,0 +1,1228 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Shadow Puppets</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;800&family=Nunito:wght@500;700&display=swap">
+<style>
+/* Layout: a full-bleed projected puppet theatre, with one setup sheet docked left (bottom on narrow screens). */
+:root{
+  --field:#000;
+  --sheet:#0f1524;
+  --sheet-edge:#27314b;
+  --well:#182036;
+  --ink:#eef2f8;
+  --ink-soft:#9ba7c2;
+  --sun:#ffd23f;
+  --sun-ink:#231a00;
+  --red:#ff4b4b;
+  --green:#3ddc6b;
+  --blue:#3a8dff;
+  --display:'Baloo 2','Trebuchet MS',system-ui,sans-serif;
+  --body:'Nunito',system-ui,-apple-system,'Segoe UI',sans-serif;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%;margin:0}
+body{background:var(--field);color:var(--ink);font:500 15px/1.5 var(--body);overflow:hidden;overscroll-behavior:none}
+#field{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#cam,#probe{display:none}
+#film{position:fixed;inset:0;width:100%;height:100%;object-fit:contain;background:#000;z-index:2}
+#sheet{z-index:3}
+#gear{z-index:4}
+#sheet>*{flex-shrink:0}
+#aim{margin:0;display:flex;flex-direction:column;gap:6px}
+#aimView{display:block;width:100%;height:auto;border-radius:12px;background:#000}
+#aim figcaption{color:var(--ink-soft);font-size:13px}
+.kiosk,.kiosk #field{cursor:none}
+
+#sheet{
+  position:fixed;left:0;top:0;bottom:0;width:min(400px,44vw);
+  background:var(--sheet);border-right:1px solid var(--sheet-edge);
+  overflow-y:auto;display:flex;flex-direction:column;gap:18px;
+  padding:calc(20px + env(safe-area-inset-top,0px)) 20px calc(20px + env(safe-area-inset-bottom,0px));
+}
+@media (max-width:759px){
+  #sheet{top:auto;right:0;width:auto;max-height:64%;border-right:0;border-top:1px solid var(--sheet-edge);
+    padding-top:18px;border-radius:18px 18px 0 0}
+}
+h1{font:800 34px/1 var(--display);margin:0;letter-spacing:-.01em;text-wrap:balance}
+h1 span:nth-child(1){color:var(--red)}
+h1 span:nth-child(2){color:var(--sun)}
+h1 span:nth-child(3){color:var(--green)}
+h1 span:nth-child(4){color:var(--blue)}
+.lead{margin:6px 0 0;color:var(--ink-soft);max-width:38ch}
+h2{font:700 12px/1 var(--body);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-soft);margin:0 0 8px}
+ol{margin:0;padding-left:1.25em;display:flex;flex-direction:column;gap:6px}
+ol li::marker{color:var(--sun);font-weight:700}
+.actions{display:flex;flex-wrap:wrap;gap:10px}
+button{
+  font:700 15px/1 var(--body);color:var(--ink);background:var(--well);
+  border:1px solid var(--sheet-edge);border-radius:999px;padding:13px 18px;cursor:pointer;min-height:44px;
+}
+button.primary{background:var(--sun);color:var(--sun-ink);border-color:var(--sun);flex:1 1 180px}
+button:hover{filter:brightness(1.12)}
+button:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid var(--blue);outline-offset:2px}
+.home{color:var(--ink-soft);font-weight:700;text-decoration:none;align-self:flex-start;padding:6px 0}
+.home:hover,.home:focus-visible{color:var(--ink);text-decoration:underline}
+#status{margin:0;min-height:1.5em;color:var(--sun)}
+#status:empty{display:none}
+details{background:var(--well);border-radius:14px;padding:4px 14px}
+summary{cursor:pointer;font-weight:700;padding:10px 0}
+.knobs{display:flex;flex-direction:column;gap:14px;padding:4px 0 14px}
+.knob{display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:baseline}
+.knob small{grid-column:1/-1;color:var(--ink-soft)}
+.knob output{font-variant-numeric:tabular-nums;color:var(--ink-soft)}
+.knob input[type=range]{grid-column:1/-1;width:100%;accent-color:var(--sun)}
+.check{display:flex;gap:10px;align-items:center}
+.check input{width:20px;height:20px;flex:none;accent-color:var(--sun)}
+#gear{
+  position:fixed;right:calc(10px + env(safe-area-inset-right,0px));top:calc(10px + env(safe-area-inset-top,0px));
+  width:44px;height:44px;padding:0;background:rgba(20,40,60,.3);border-color:rgba(20,40,60,.25);color:rgba(255,255,255,.75);font-size:20px;
+}
+</style>
+</head>
+<body>
+<canvas id="field" aria-label="Projection field"></canvas>
+<video id="cam" playsinline muted></video>
+<canvas id="probe"></canvas>
+<video id="film" playsinline preload="none" hidden></video>
+
+<aside id="sheet">
+  <div>
+    <h1><span>Sh</span><span>ad</span><span>ow&nbsp;</span><span>Puppets</span></h1>
+    <p class="lead">Make an animal with your hands in the light. When the shadow on the stage matches, that animal's short film plays.</p>
+  </div>
+
+  <section id="howto">
+    <h2>Set up</h2>
+    <ol>
+      <li>Mirror this phone to the projector and aim it at a plain, light table or wall.</li>
+      <li>Prop the phone near the projector so its back camera sees the whole projected picture.</li>
+      <li>Keep hands out of the light and tap Start. Four dots flash while the camera lines itself up.</li>
+      <li>Hold your hands in the beam so their shadow lands on the bright stage. The cards under the stage show the shapes.</li>
+    </ol>
+  </section>
+
+  <div class="actions">
+    <button class="primary" id="go" type="button">Start with camera</button>
+    <button id="resume" type="button" hidden>Back to play</button>
+    <button id="demo" type="button">Try without camera</button>
+  </div>
+  <a class="home" href="../../">&larr; All games</a>
+  <p id="status" role="status" aria-live="polite"></p>
+  <button id="aimBtn" type="button">Check camera aim</button>
+  <figure id="aim" hidden>
+    <canvas id="aimView" width="480" height="270"></canvas>
+    <figcaption>This is what the camera sees. The whole projected picture should fit inside it. After a line-up, the yellow box should sit on the stage, red dots show where the camera sees a shadow or a hand, and each animal's match is listed underneath.</figcaption>
+  </figure>
+
+  <details id="adjust">
+    <summary>Adjust</summary>
+    <div class="knobs">
+      <label class="check" for="oneAtATime"><input id="oneAtATime" type="checkbox"> Ask for one animal at a time</label>
+      <label class="knob" for="need">Match needed <output id="needOut"></output>
+        <input id="need" type="range" min="30" max="85" step="5">
+        <small>How closely the shadow has to match the shape. Lower is more forgiving for little hands.</small></label>
+      <label class="knob" for="hold">Hold for <output id="holdOut"></output>
+        <input id="hold" type="range" min="2" max="10" step="1">
+        <small>How long the shape has to stay matched before its film plays.</small></label>
+      <label class="knob" for="sens">Sensitivity <output id="sensOut"></output>
+        <input id="sens" type="range" min="50" max="250" step="10">
+        <small>How faint a shadow the camera counts. Raise it if shadows are missed; lower it if the stage fills in by itself.</small></label>
+      <label class="knob" for="light">Stage light <output id="lightOut"></output>
+        <input id="light" type="range" min="150" max="255" step="5">
+        <small>How bright the stage is. Brighter light makes sharper shadows.</small></label>
+      <label class="check" for="sound"><input id="sound" type="checkbox"> Sounds, music and narration</label>
+      <label class="check" for="front"><input id="front" type="checkbox"> Use the front camera</label>
+    </div>
+  </details>
+</aside>
+
+<button id="gear" type="button" aria-label="Open settings" hidden>&#9881;</button>
+
+<script>
+(() => {
+'use strict';
+const $ = id => document.getElementById(id);
+const cv = $('field'), mainCtx = cv.getContext('2d');
+let ctx = mainCtx;                                   // swapped while the theatre is painted to its own canvas
+const video = $('cam'), probe = $('probe'), pctx = probe.getContext('2d', {willReadFrequently: true});
+const film = $('film'), sheet = $('sheet'), statusEl = $('status');
+const TAU = Math.PI * 2;
+
+/* ---------- settings ---------- */
+const cfg = {need: 60, hold: 4, sens: 120, light: 240, sound: true, front: false, oneAtATime: true};
+try { Object.assign(cfg, JSON.parse(localStorage.getItem('shadowPuppets1') || '{}')); } catch (e) {}
+const save = () => { try { localStorage.setItem('shadowPuppets1', JSON.stringify(cfg)); } catch (e) {} };
+
+/* ---------- small drawing helpers ---------- */
+function el(x, y, rx, ry, rot) { ctx.beginPath(); ctx.ellipse(x, y, Math.abs(rx), Math.abs(ry), rot || 0, 0, TAU); ctx.fill(); }
+function cap(x1, y1, x2, y2, w) { ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.lineWidth = w; ctx.lineCap = 'round'; ctx.strokeStyle = ctx.fillStyle; ctx.stroke(); }
+function poly(pts) { ctx.beginPath(); pts.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])); ctx.closePath(); ctx.fill(); }
+function dot(x, y, r, fill) { ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fillStyle = fill; ctx.fill(); }
+function rrect(x, y, w, h, r) { ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x, y, w, h, r) : ctx.rect(x, y, w, h); }
+const rnd = i => { const x = Math.sin(i * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
+const ease = x => x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x);
+const span = (t, a, b) => ease((t - a) / (b - a));       // 0 before a, 1 after b, smooth between
+const mix = (a, b, f) => a + (b - a) * f;
+
+/* ---------- the hand shapes ----------
+   Each shape is the shadow a pair of hands throws, in hand units: the hand sits between y=0 and the wrist at y=1,
+   and the forearm carries on down past y=1. Only the part above the wrist is matched, because arms come in at any angle.
+   c: a finger or arm (x1, y1, x2, y2, thickness) · e: a palm or fist (cx, cy, rx, ry, turn)
+   k marks the giveaway parts (ears, beak, antlers, jaws): they count extra, and so does any shadow in the gaps around them. */
+const PUPPETS = [
+  {id: 'rabbit', name: 'rabbit', title: 'The Rabbit', arm: .34, arms: 1, bar: .1,
+   say: 'Rabbits can turn their long ears to listen in almost every direction.',
+   hint: 'Two fingers up for ears, the others tucked into your thumb.',
+   shape: [{e: [0, .66, .3, .26]}, {c: [-.1, .5, -.2, .04, .15], k: 1}, {c: [.1, .5, .18, .06, .15], k: 1}, {e: [.26, .74, .1, .08]}, {c: [0, .8, 0, 1.8, .34]}]},
+  {id: 'dog', name: 'dog', title: 'The Dog', arm: .32, arms: 1,
+   say: "A dog's nose can smell thousands of times better than yours.",
+   hint: 'Flat hand sideways, thumb up for an ear, little finger down for the mouth.',
+   shape: [{e: [-.12, .42, .24, .2]}, {c: [-.05, .32, .56, .36, .2], k: 1}, {c: [-.02, .52, .48, .6, .13], k: 1}, {c: [-.22, .3, -.3, 0, .15], k: 1}, {c: [-.2, .5, -.2, 1.8, .32]}]},
+  {id: 'bird', name: 'bird', title: 'The Bird', arm: .26, arms: 2,
+   say: 'Some birds fly thousands of miles every year to find warm weather.',
+   hint: 'Hook your thumbs together and flap your fingers like wings.',
+   shape: [{e: [-.17, .52, .17, .13]}, {e: [.17, .52, .17, .13]}, {c: [0, .42, 0, .18, .12], k: 1},
+     {c: [-.28, .48, -.86, .12, .1], k: 1}, {c: [-.3, .5, -.9, .3, .1], k: 1}, {c: [-.3, .52, -.88, .48, .1], k: 1}, {c: [-.28, .55, -.8, .64, .1], k: 1},
+     {c: [.28, .48, .86, .12, .1], k: 1}, {c: [.3, .5, .9, .3, .1], k: 1}, {c: [.3, .52, .88, .48, .1], k: 1}, {c: [.28, .55, .8, .64, .1], k: 1},
+     {c: [-.12, .6, -.32, 1.8, .26]}, {c: [.12, .6, .32, 1.8, .26]}]},
+  {id: 'swan', name: 'swan', title: 'The Swan', arm: .22, arms: 1, bar: .1,
+   say: 'Baby swans are called cygnets, and sometimes they ride on their parent\'s back.',
+   hint: 'Arm straight up for the neck, hand bent over with fingers together for the beak.',
+   shape: [{c: [0, 1.8, 0, .3, .22]}, {e: [.1, .2, .18, .12, -.15], k: 1}, {c: [.24, .24, .48, .42, .11], k: 1}]},
+  {id: 'deer', name: 'deer', title: 'The Deer', arm: .24, arms: 2,
+   say: 'Many deer grow a brand new set of antlers every single year.',
+   hint: 'Cross your wrists and spread all your fingers up like antlers.',
+   shape: [{e: [0, .62, .17, .2]}, {e: [0, .84, .09, .1]},
+     {c: [-.12, .48, -.62, .22, .09], k: 1}, {c: [-.12, .48, -.56, .04, .09], k: 1}, {c: [-.1, .46, -.4, -.04, .09], k: 1}, {c: [-.08, .46, -.24, 0, .09], k: 1},
+     {c: [.12, .48, .62, .22, .09], k: 1}, {c: [.12, .48, .56, .04, .09], k: 1}, {c: [.1, .46, .4, -.04, .09], k: 1}, {c: [.08, .46, .24, 0, .09], k: 1},
+     {c: [-.06, .8, -.28, 1.8, .24]}, {c: [.06, .8, .28, 1.8, .24]}]},
+  {id: 'crocodile', name: 'crocodile', title: 'The Crocodile', arm: .34, arms: 1,
+   say: 'Crocodiles have been around since the time of the dinosaurs.',
+   hint: 'Two flat hands stacked, fingers forward, opening and snapping like jaws.',
+   shape: [{e: [-.28, .5, .2, .2]}, {c: [-.3, .4, .62, .24, .2], k: 1}, {c: [-.3, .6, .58, .72, .18], k: 1}, {c: [-.18, .34, -.12, .2, .11], k: 1}, {c: [-.36, .6, -.4, 1.8, .34]}]}
+];
+/* Draw a hand shape in hand units on whatever transform is current. */
+function drawShape(shape, keyOnly) {
+  for (const p of shape) {
+    if (keyOnly && !p.k) continue;
+    if (p.e) el(p.e[0], p.e[1], p.e[2], p.e[3], p.e[4]);
+    else cap(p.c[0], p.c[1], p.c[2], p.c[3], p.c[4]);
+  }
+}
+
+/* ---------- state ---------- */
+const S = {mode: 'attract', phase: 'play', scene: null, Hm: null, base: null, noise: null, parts: [],
+           W: 0, H: 0, free: {x: 0, y: 0, w: 1, h: 1}, stage: {x: 0, y: 0, w: 1, h: 1}, cards: [], pw: 640, ph: 360, bg: null,
+           GW: 64, GH: 40, cells: [], mask: null, scores: [], streak: 0, lead: -1, target: 0, t0: 0, clearRun: 0, cine: null, hasFilm: {}};
+const DOTS = [[.2, .2], [.8, .2], [.8, .8], [.2, .8]];
+const WAIT = 1200;                      // ms for screen mirroring and camera exposure to settle
+let now = 0;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const note = msg => { statusEl.textContent = msg || ''; };
+
+/* ---------- geometry ---------- */
+function homography(src, dst) {
+  const A = [];
+  for (let i = 0; i < 4; i++) {
+    const [x, y] = src[i], [u, v] = dst[i];
+    A.push([x, y, 1, 0, 0, 0, -u * x, -u * y, u], [0, 0, 0, x, y, 1, -v * x, -v * y, v]);
+  }
+  for (let c = 0; c < 8; c++) {
+    let p = c;
+    for (let r = c + 1; r < 8; r++) if (Math.abs(A[r][c]) > Math.abs(A[p][c])) p = r;
+    if (Math.abs(A[p][c]) < 1e-10) return null;
+    [A[c], A[p]] = [A[p], A[c]];
+    for (let r = 0; r < 8; r++) if (r !== c) {
+      const f = A[r][c] / A[c][c];
+      for (let k = c; k < 9; k++) A[r][k] -= f * A[c][k];
+    }
+  }
+  return A.map((row, i) => row[8] / row[i]);
+}
+function project(hm, x, y) {
+  const w = hm[6] * x + hm[7] * y + 1;
+  return [(hm[0] * x + hm[1] * y + hm[2]) / w, (hm[3] * x + hm[4] * y + hm[5]) / w];
+}
+
+/* The stage is the big lit window in the middle; the animal cards sit on the boards below it. */
+function layout() {
+  const r = cv.getBoundingClientRect(), dpr = Math.min(window.devicePixelRatio || 1, 2);
+  S.W = cv.width = Math.max(2, Math.round(r.width * dpr));
+  S.H = cv.height = Math.max(2, Math.round(r.height * dpr));
+  let x0 = 0, y1 = S.H;
+  if (!sheet.hidden) {
+    const s = sheet.getBoundingClientRect();
+    if (s.width < r.width * .9) x0 = s.right * dpr; else y1 = s.top * dpr;
+  }
+  const F = S.free = {x: x0, y: 0, w: S.W - x0, h: y1};
+  const sx = F.w * .09, st = S.stage = {x: F.x + sx, y: F.y + F.h * .1, w: F.w - sx * 2, h: F.h * .64};
+  const n = PUPPETS.length, gap = st.w * .015, cw = (st.w - gap * (n - 1)) / n, ch = Math.min(F.h * .19, cw * .85);
+  S.cards = PUPPETS.map((p, i) => ({x: st.x + i * (cw + gap), y: F.y + F.h * .785, w: cw, h: ch}));
+  S.GW = 64; S.GH = Math.max(16, Math.min(64, Math.round(64 * st.h / st.w)));
+  buildCells();
+  buildTheatre();
+}
+
+/* ---------- camera ---------- */
+async function startCamera() {
+  if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia)
+    throw new Error('The camera only works from an https address. Put this file on a web host and open that link on the phone.');
+  if (video.srcObject) video.srcObject.getTracks().forEach(t => t.stop());
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({audio: false,
+      video: {facingMode: {ideal: cfg.front ? 'user' : 'environment'}, width: {ideal: 1280}, height: {ideal: 720}}});
+  } catch (e) {
+    throw new Error(e && e.name === 'NotAllowedError'
+      ? 'The camera is blocked here. Allow it in the browser\'s site settings, then tap Start again.'
+      : 'No camera could be opened. Close other apps using it and tap Start again.');
+  }
+  video.srcObject = stream;
+  await video.play();
+  for (let i = 0; i < 40 && !video.videoWidth; i++) await sleep(50);
+  if (!video.videoWidth) throw new Error('The camera opened but sent no picture. Tap Start again.');
+  S.pw = 640; S.ph = Math.round(640 * video.videoHeight / video.videoWidth);
+  probe.width = S.pw; probe.height = S.ph;
+}
+function grab() { pctx.drawImage(video, 0, 0, S.pw, S.ph); return pctx.getImageData(0, 0, S.pw, S.ph).data; }
+function lockCamera() {          // best effort: stop auto exposure and white balance drifting between frames
+  try {
+    const tr = video.srcObject.getVideoTracks()[0], caps = tr.getCapabilities ? tr.getCapabilities() : {}, adv = {};
+    if ((caps.exposureMode || []).includes('manual')) adv.exposureMode = 'manual';
+    if ((caps.whiteBalanceMode || []).includes('manual')) adv.whiteBalanceMode = 'manual';
+    if ((caps.focusMode || []).includes('manual')) adv.focusMode = 'manual';
+    if (Object.keys(adv).length) tr.applyConstraints({advanced: [adv]}).catch(() => {});
+  } catch (e) {}
+}
+function brightSpot(frame, dark) {
+  const n = S.pw * S.ph, diff = new Float32Array(n);
+  let max = 0;
+  for (let i = 0; i < n; i++) {
+    const k = i * 4, d = (frame[k] + frame[k + 1] + frame[k + 2]) - (dark[k] + dark[k + 1] + dark[k + 2]);
+    diff[i] = d; if (d > max) max = d;
+  }
+  if (max < 90) return null;
+  let sx = 0, sy = 0, c = 0;
+  for (let i = 0; i < n; i++) if (diff[i] >= max * .55) { sx += i % S.pw; sy += (i / S.pw) | 0; c++; }
+  if (c < 6 || c > n * .2) return null;
+  return [sx / c / S.pw, sy / c / S.ph];
+}
+/* The empty stage is photographed with the real theatre showing, so the camera's colour balance matches play. */
+async function rebase() {
+  S.scene = {type: 'base'}; await sleep(WAIT); await learn(); S.calKey = orientKey();
+  buildCells(); buildShapes(); PUPPETS[0].gridsFor = S.GH;          // ready the shapes while the stage is still empty
+  S.scene = null; S.streak = 0;
+}
+async function calibrate() {
+  S.Hm = null;
+  S.scene = {type: 'black'}; await sleep(WAIT);
+  const dark = grab(), seen = [];
+  for (let i = 0; i < 4; i++) {
+    S.scene = {type: 'dot', i}; await sleep(WAIT);
+    const p = brightSpot(grab(), dark);
+    if (!p) throw new Error('The camera could not find the dots. Dim the room a little, check the camera sees the whole projected picture, and try again.');
+    seen.push(p);
+  }
+  let turn = 0;
+  for (let i = 0; i < 4; i++) {
+    const a = seen[i], b = seen[(i + 1) % 4], c = seen[(i + 2) % 4];
+    turn += Math.sign((b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]));
+  }
+  const hm = homography(DOTS, seen);
+  if (!hm || Math.abs(turn) !== 4) throw new Error('The dots were read in a jumbled order. Keep hands out of the light and try again.');
+  S.scene = {type: 'dot', p: [.5, .5]}; await sleep(WAIT);
+  const mid = brightSpot(grab(), dark), want = project(hm, .5, .5);
+  if (!mid || Math.hypot((mid[0] - want[0]) * S.pw, (mid[1] - want[1]) * S.ph) > S.pw * .04)
+    throw new Error('The line-up did not check out: the centre dot was not where the corners said it would be. Keep the phone completely still and hands out of view, then try again.');
+  S.Hm = hm;
+  await rebase(); lockCamera();
+}
+
+/* ---------- sensing: the stage is cut into a grid, and a cell is "shadow" when it changed from the empty stage ----------
+   A hand in the beam darkens the stage (its shadow) and, seen from beside the projector, covers it with skin-coloured light.
+   Either way the cell differs from the empty picture, so the shape the camera reads is the shape the hands make in the light.
+   Nothing is ever drawn on the stage during play, so the empty picture stays true. */
+const orientKey = () => ((screen.orientation && screen.orientation.type) || (innerWidth > innerHeight ? 'landscape' : 'portrait')) + ':' + video.videoWidth + 'x' + video.videoHeight;
+function buildCells() {
+  S.cells = []; S.mask = new Uint8Array(S.GW * S.GH);
+  if (!S.Hm) return;
+  const st = S.stage;
+  for (let j = 0; j < S.GH; j++) for (let i = 0; i < S.GW; i++) {
+    const x = st.x + st.w * (.015 + .97 * (i + .5) / S.GW), y = st.y + st.h * (.015 + .97 * (j + .5) / S.GH);
+    const [a, b] = project(S.Hm, x / S.W, y / S.H);
+    const px_ = Math.round(a * S.pw), py = Math.round(b * S.ph);
+    S.cells.push(px_ >= 0 && py >= 0 && px_ < S.pw && py < S.ph ? (py * S.pw + px_) * 4 : -1);
+  }
+}
+/* Each sample is averaged with four neighbours, which smooths out the rainbow patterns a camera sees on a screen. */
+function px(arr, k, out) {
+  const row = S.pw * 8, n = arr.length;
+  let r = 0, g = 0, b = 0, c = 0;
+  for (const o of [0, 8, -8, row, -row]) { const q = k + o; if (q < 0 || q >= n) continue; r += arr[q]; g += arr[q + 1]; b += arr[q + 2]; c++; }
+  out[0] = r / c; out[1] = g / c; out[2] = b / c; return out;
+}
+const P = [0, 0, 0], Q = [0, 0, 0];
+function diffD(r, g, b, br, bg, bb) {
+  const t = r + g + b + 1, u = br + bg + bb + 1;
+  const dc = Math.hypot(r / t - br / u, g / t - bg / u), dl = Math.abs(Math.log((t + 40) / (u + 40)));
+  return Math.max(dc / .05, dl / .22);
+}
+/* Photograph the empty stage several times: the average is the reference,
+   and how much each spot flickers sets how big a change it takes to count there. */
+async function learn() {
+  const n = 7, frames = [];
+  for (let i = 0; i < n; i++) { frames.push(grab()); await sleep(60); }
+  const len = S.pw * S.ph * 4;
+  S.base = new Float32Array(len); S.noise = new Float32Array(len / 4);
+  for (let k = 0; k < len; k += 4) for (let c = 0; c < 3; c++) { let m = 0; for (const f of frames) m += f[k + c]; S.base[k + c] = m / n; }
+  for (let k = 0; k < len; k += 4) {
+    let v = 0; px(S.base, k, Q);
+    for (const f of frames) { px(f, k, P); const d = diffD(P[0], P[1], P[2], Q[0], Q[1], Q[2]); v += d * d; }
+    S.noise[k / 4] = Math.sqrt(v / n);
+  }
+  S.baseBal = balance(S.base);
+}
+function balance(arr) {           // the camera's overall colour balance, from a sparse grid over the whole picture
+  let r = 0, g = 0, b = 0;
+  for (let k = 0; k < arr.length; k += 4 * 13) { r += arr[k]; g += arr[k + 1]; b += arr[k + 2]; }
+  return [r || 1, g || 1, b || 1];
+}
+/* Read the stage into S.mask (1 = shadow or hand), tidied so single speckles and pinholes vanish. Returns the shadow fraction. */
+function readMask() {
+  const d = grab(), cur = balance(d), gain = S.baseBal.map((v, i) => v / cur[i]), sens = cfg.sens / 100;
+  const GW = S.GW, GH = S.GH, raw = new Uint8Array(GW * GH);
+  S.cells.forEach((k, i) => {
+    if (k < 0) return;
+    px(d, k, P); px(S.base, k, Q);
+    const D = diffD(P[0] * gain[0], P[1] * gain[1], P[2] * gain[2], Q[0], Q[1], Q[2]);
+    raw[i] = D * sens > 1 + 4 * S.noise[k >> 2] ? 1 : 0;
+  });
+  return tidy(raw);
+}
+function tidy(raw) {             // drop lone speckles and fill pinholes, but keep one-cell-thin fingers
+  const GW = S.GW, GH = S.GH, m = S.mask; let on = 0;
+  for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) {
+    let c = 0;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const X = x + dx, Y = y + dy;
+      if ((dx || dy) && X >= 0 && Y >= 0 && X < GW && Y < GH) c += raw[Y * GW + X];
+    }
+    on += m[y * GW + x] = raw[y * GW + x] ? (c >= 2 ? 1 : 0) : (c >= 6 ? 1 : 0);
+  }
+  return on / (GW * GH);
+}
+
+/* ---------- matching ----------
+   Every shape is drawn ahead of time into small grids at several sizes, two small tilts, mirrored (left or right hand),
+   and turned four ways so the arm can reach in from any edge of the stage. Each grid is slid over the stage reading,
+   and the best overlap (shared cells / cells in either, giveaway parts counted three times) is that animal's match.
+   Cells past the wrist are left out, because arms come in at any angle. */
+const SIZES = [.32, .42, .54, .68, .84], TILTS = [-.26, 0, .26], EDGES = [0, Math.PI, Math.PI / 2, -Math.PI / 2];   // arm from bottom, top, left, right
+function buildShapes() {             // built on first use for each stage size, then kept: it takes a moment
+  const GH = S.GH;
+  for (const pz of PUPPETS) {
+    pz.cache = pz.cache || {};
+    if (pz.cache[GH]) { pz.grids = pz.cache[GH]; continue; }
+    pz.grids = pz.cache[GH] = [];
+    EDGES.forEach((turn, edge) => { for (const k of SIZES) for (const tilt of TILTS) for (const mirror of [1, -1])
+      pz.grids.push(Object.assign(rasterize(pz.shape, k * GH, turn + tilt, mirror), {edge, s: k * GH})); });
+  }
+}
+const ras = [0, 1, 2].map(() => document.createElement('canvas'));
+function rasterize(shape, s, turn, mirror) {
+  const N = Math.ceil(s * 3.2) + 8, half = N / 2, keep = ctx;
+  const layers = ras.map((c, i) => {
+    c.width = c.height = N; const g = c.getContext('2d', {willReadFrequently: true});
+    g.translate(half, half); g.rotate(turn); g.scale(mirror * s, s); g.translate(0, -.5); g.fillStyle = '#fff';
+    ctx = g;
+    if (i === 0) drawShape(shape); else if (i === 1) drawShape(shape, true); else g.fillRect(-9, -9, 18, 10);   // whole / giveaways / above the wrist
+    return g.getImageData(0, 0, N, N).data;
+  });
+  ctx = keep;
+  const [A, K, B] = layers, on = (L, x, y) => L[(y * N + x) * 4 + 3] > 127;
+  let x0 = N, y0 = N, x1 = -1, y1 = -1;
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++)
+    if (on(A, x, y) && on(B, x, y)) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+  const m = 3; x0 = Math.max(0, x0 - m); y0 = Math.max(0, y0 - m); x1 = Math.min(N - 1, x1 + m); y1 = Math.min(N - 1, y1 + m);
+  const w = x1 - x0 + 1, h = y1 - y0 + 1, cells = new Uint8Array(w * h), key = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) key[y * w + x] = on(K, x + x0, y + y0) ? 1 : 0;
+  const k2 = grow(key, w, h, 2), reach = Math.max(3, Math.round(s * .3));
+  /* A gap between two giveaway parts: look both ways along a line and find a giveaway on each side within reach. */
+  const between = (x, y) => [[1, 0], [0, 1], [1, 1], [1, -1]].some(([dx, dy]) => {
+    const hit = sgn => { for (let d = 1; d <= reach; d++) { const X = x + dx * d * sgn, Y = y + dy * d * sgn; if (X < 0 || Y < 0 || X >= w || Y >= h) return false; if (key[Y * w + X]) return true; } return false; };
+    return hit(1) && hit(-1);
+  });
+  let area = 0, keyN = 0, gapN = 0;
+  /* 0 should be empty · 1 hand · 3 giveaway part · 4 just beside a giveaway · 5 a gap the giveaways frame (between ears, inside open jaws) · 2 not counted */
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const X = x + x0, Y = y + y0, i = y * w + x;
+    let v = !on(B, X, Y) ? 2 : key[i] ? 3 : on(A, X, Y) ? 1 : k2[i] ? 4 : 0;
+    if ((v === 0 || v === 4) && between(x, y)) v = 5;
+    cells[i] = v; if (v === 1 || v === 3) area++; if (v === 3) keyN++; if (v === 5) gapN++;
+  }
+  /* The template's outline, and the band one cell either side of it, for comparing outlines. */
+  const tb = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const v = cells[y * w + x]; if (v !== 1 && v !== 3) continue;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const X = x + dx, Y = y + dy, u = X < 0 || Y < 0 || X >= w || Y >= h ? 0 : cells[Y * w + X];
+      if (u === 0 || u === 4 || u === 5) { tb[y * w + x] = 1; break; }
+    }
+  }
+  return {w, h, cells, area, keyN, gapN, tb, tbn: grow(tb, w, h, 1)};
+}
+function grow(a, w, h, r) {        // square dilation by r cells, done as two passes
+  const t = new Uint8Array(w * h), o = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { let v = 0; for (let d = -r; d <= r && !v; d++) { const X = x + d; if (X >= 0 && X < w) v = a[y * w + X]; } t[y * w + x] = v; }
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { let v = 0; for (let d = -r; d <= r && !v; d++) { const Y = y + d; if (Y >= 0 && Y < h) v = t[Y * w + x]; } o[y * w + x] = v; }
+  return o;
+}
+function overlap(g, mask, edge, ox, oy) {
+  const GW = S.GW, GH = S.GH, nearEdge = edge.near; let I = 0, U = 0, kc = 0, gap = 0, tbN = 0, rec = 0, mbN = 0, prec = 0;
+  for (let y = 0; y < g.h; y++) {
+    const gy = oy + y, row = gy >= 0 && gy < GH ? gy * GW : -1;
+    for (let x = 0; x < g.w; x++) {
+      const i = y * g.w + x, v = g.cells[i]; if (v === 2) continue;
+      const gx = ox + x, inGrid = row >= 0 && gx >= 0 && gx < GW, m = inGrid ? mask[row + gx] : 0;
+      if (g.tb[i]) { tbN++; if (inGrid && nearEdge[row + gx]) rec++; }
+      if (inGrid && edge.on[row + gx]) { mbN++; if (g.tbn[i]) prec++; }
+      if (v === 1) { U++; if (m) I++; }
+      else if (v === 3) { U += 3; if (m) { I += 3; kc++; } }
+      else if (m) { U += v === 5 ? 3 : v === 4 ? 1.5 : 1; if (v === 5) gap++; }
+    }
+  }
+  if (!U) return 0;
+  /* The overlap is blended with how well the outlines line up (each within a cell of the other), because
+     the outline is where the animals differ. Most of the giveaway parts have to be there, and the gaps
+     between them mostly clear: a fist has the outline of a rabbit's head, but nothing between its ears. */
+  const P = mbN ? prec / mbN : 0, R = tbN ? rec / tbN : 0, F = P + R ? 2 * P * R / (P + R) : 0;
+  const keys = g.keyN ? Math.min(1, kc / (g.keyN * .6)) : 1, clear = g.gapN ? Math.max(0, Math.min(1, (1 - gap / g.gapN) / .6)) : 1;
+  return Math.sqrt(I / U * F) * keys * clear;
+}
+function match(mask, only) {
+  if (!PUPPETS[0].grids || PUPPETS[0].gridsFor !== S.GH) { buildShapes(); PUPPETS[0].gridsFor = S.GH; }
+  const GW = S.GW, GH = S.GH, SI = new Int32Array((GW + 1) * (GH + 1));
+  let bx0 = GW, by0 = GH, bx1 = -1, by1 = -1;
+  const edge = [0, 0, 0, 0];                               // shadow along the bottom, top, left, right edges
+  for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) {
+    const v = mask[y * GW + x];
+    SI[(y + 1) * (GW + 1) + x + 1] = v + SI[y * (GW + 1) + x + 1] + SI[(y + 1) * (GW + 1) + x] - SI[y * (GW + 1) + x];
+    if (!v) continue;
+    bx0 = Math.min(bx0, x); bx1 = Math.max(bx1, x); by0 = Math.min(by0, y); by1 = Math.max(by1, y);
+    if (y >= GH - 2) edge[0]++; if (y < 2) edge[1]++; if (x < 2) edge[2]++; if (x >= GW - 2) edge[3]++;
+  }
+  if (bx1 < 0) return PUPPETS.map(() => ({score: 0}));
+  const arms = edge.some(n => n >= 2) ? edge.map(n => n >= 2) : [true, true, true, true];   // the arm comes in where the shadow meets the edge
+  /* How wide the arms are where they cross the edge says roughly how big the hands are. */
+  const runs = [];
+  const edgeCells = [[i => (GH - 1) * GW + i, GW], [i => i, GW], [i => i * GW, GH], [i => i * GW + GW - 1, GH]];
+  edgeCells.forEach(([at, n], e) => {
+    if (!arms[e]) return;
+    let r = 0;
+    for (let i = 0; i <= n; i++) { if (i < n && mask[at(i)]) r++; else { if (r >= 2) runs.push(r); r = 0; } }
+  });
+  /* The shadow's outline (the stage's own border doesn't count: arms run off it), and a one-cell band around it. */
+  const on = new Uint8Array(GW * GH);
+  for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) if (mask[y * GW + x])
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const X = x + dx, Y = y + dy; if (X >= 0 && Y >= 0 && X < GW && Y < GH && !mask[Y * GW + X]) { on[y * GW + x] = 1; break; } }
+  const near = {on, near: grow(on, GW, GH, 1)};
+  const sizeOK = (pz, s) => {
+    if (!runs.length) return true;
+    const w = pz.arms === 2 && runs.length === 1 ? runs[0] / 2 : Math.min(...runs), want = w / pz.arm;
+    return s > want * .35 && s < want * 1.6;      // an arm crossing the edge at a slant looks wider, never narrower
+  };
+  const boxSum = (x0, y0, x1, y1) => {
+    x0 = Math.max(0, x0); y0 = Math.max(0, y0); x1 = Math.min(GW, x1); y1 = Math.min(GH, y1);
+    if (x1 <= x0 || y1 <= y0) return 0;
+    return SI[y1 * (GW + 1) + x1] - SI[y0 * (GW + 1) + x1] - SI[y1 * (GW + 1) + x0] + SI[y0 * (GW + 1) + x0];
+  };
+  const bw = bx1 - bx0 + 1, bh = by1 - by0 + 1;
+  return PUPPETS.map((pz, pi) => {
+    if (only != null && only !== pi) return {score: 0};
+    let best = {score: 0};
+    for (const g of pz.grids) {
+      if (!arms[g.edge] || g.w > bw + 8 || g.h > bh + 8 || !sizeOK(pz, g.s)) continue;   // the hand has to fit the shadow and its arms
+      for (let oy = by0 - 3; oy <= by1 - g.h + 4; oy += 2) for (let ox = bx0 - 3; ox <= bx1 - g.w + 4; ox += 2) {
+        if (boxSum(ox, oy, ox + g.w, oy + g.h) < g.area * .3) continue;
+        const sc = overlap(g, mask, near, ox, oy);
+        if (sc > best.score) best = {score: sc, g, ox, oy};
+      }
+    }
+    if (best.g) {                                         // nudge the best spot by one cell each way
+      const {g, ox, oy} = best;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const sc = overlap(g, mask, near, ox + dx, oy + dy);
+        if (sc > best.score) best = {score: sc, g, ox: ox + dx, oy: oy + dy};
+      }
+    }
+    best.raw = best.score; best.score = Math.max(0, best.score - (pz.bar || 0));   // simple shapes that plain hands resemble must match better
+    return best;
+  });
+}
+
+function sense() {
+  if (S.mode !== 'camera' || S.scene || !sheet.hidden || !S.base || S.busy || !S.cells.length) return;
+  if (S.calKey && orientKey() !== S.calKey) { begin(true); return; }   // the screen or camera turned: line up again
+  if (S.phase === 'win' || S.phase === 'film') return;
+  const filled = readMask();
+  if (S.phase === 'clear') {                             // wait for the hands to leave before the next animal
+    S.clearRun = filled < .03 ? S.clearRun + 1 : 0;
+    const waited = now - S.t0;
+    if (S.clearRun >= 3) toPlay();
+    else if (waited > 6 && !S.nagged) { S.nagged = true; speak('Take your hands out of the light for the next one'); }
+    else if (waited > 25) rebase().then(toPlay);          // it never cleared: the room light probably changed
+    return;
+  }
+  /* Most of the stage changing at once is the room light or the camera moving, not hands. Photograph it again if it lasts. */
+  if (filled > .6) { if ((S.shaky = (S.shaky || 0) + 1) > 14) { S.shaky = 0; rebase(); } return; }
+  S.shaky = 0;
+  S.scores = filled < .015 ? PUPPETS.map(() => ({score: 0})) : match(S.mask);
+  /* Asked for one animal: it has to match well and about as well as anything else.
+     Any animal: the best one has to match well and clearly beat the runner-up. */
+  const need = cfg.need / 100, sc = S.scores.map(m => m.score);
+  let lead, ok;
+  if (cfg.oneAtATime) {
+    lead = S.target;
+    ok = sc[lead] >= need && sc.every((v, i) => i === lead || v - .05 <= sc[lead]);
+  } else {
+    lead = sc.indexOf(Math.max(...sc));
+    ok = sc[lead] >= need && sc.every((v, i) => i === lead || sc[lead] - v >= .05);
+  }
+  S.streak = ok && lead === S.lead ? S.streak + 1 : ok ? 1 : 0;
+  S.lead = ok ? lead : -1;
+  if (S.streak >= cfg.hold) win(lead);
+}
+/* Read the stage again as soon as the last reading has had time to settle; slower phones just read less often. */
+(function loop() {
+  const t = performance.now();
+  try { sense(); } catch (e) { console.error(e); }
+  setTimeout(loop, Math.max(150, (performance.now() - t) * 2));
+})();
+
+/* ---------- sound ---------- */
+let ac = null;
+function initAudio() { try { ac = ac || new (window.AudioContext || window.webkitAudioContext)(); ac.resume(); } catch (e) {} }
+const quiet = () => !ac || !cfg.sound || S.mode === 'attract';
+function tone(freq, delay = 0, len = .22, type = 'triangle', vol = .2) {
+  if (quiet()) return;
+  const o = ac.createOscillator(), g = ac.createGain(), t = ac.currentTime + delay;
+  o.type = type; o.frequency.value = freq;
+  g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vol, t + .02); g.gain.exponentialRampToValueAtTime(.001, t + len);
+  o.connect(g).connect(ac.destination); o.start(t); o.stop(t + len + .05);
+}
+function noise(delay, len, vol, lo, hi) {            // a filtered hiss: snaps and splashes
+  if (quiet()) return;
+  const n = Math.ceil(ac.sampleRate * len), buf = ac.createBuffer(1, n, ac.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, 2);
+  const s = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain(), t = ac.currentTime + delay;
+  f.type = 'bandpass'; f.frequency.value = (lo + hi) / 2; f.Q.value = (lo + hi) / 2 / (hi - lo);
+  g.gain.value = vol; s.buffer = buf; s.connect(f).connect(g).connect(ac.destination); s.start(t);
+}
+function woof(delay) {
+  if (quiet()) return;
+  const o = ac.createOscillator(), f = ac.createBiquadFilter(), g = ac.createGain(), t = ac.currentTime + delay;
+  o.type = 'sawtooth'; o.frequency.setValueAtTime(320, t); o.frequency.exponentialRampToValueAtTime(140, t + .16);
+  f.type = 'lowpass'; f.frequency.value = 900;
+  g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.25, t + .015); g.gain.exponentialRampToValueAtTime(.001, t + .2);
+  o.connect(f).connect(g).connect(ac.destination); o.start(t); o.stop(t + .25);
+}
+/* A soft drone and a slow tune under each film: a root, its fifth, and notes picked from a five-note scale. */
+function score(len, root, notes) {
+  if (quiet()) return;
+  const t = ac.currentTime;
+  for (const [f, v] of [[root / 2, .06], [root * .75, .04]]) {
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.type = 'sine'; o.frequency.value = f;
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(v, t + 1.5); g.gain.setValueAtTime(v, t + len - 2); g.gain.linearRampToValueAtTime(0, t + len);
+    o.connect(g).connect(ac.destination); o.start(t); o.stop(t + len + .1);
+  }
+  const scale = [0, 2, 4, 7, 9, 12, 14];
+  for (let i = 0; i < notes; i++) tone(root * Math.pow(2, scale[(i * 3 + (i >> 2)) % scale.length] / 12), .6 + i * (len - 2) / notes, 1.4, 'sine', .07);
+}
+function speak(text, delay) {
+  if (!cfg.sound || S.mode === 'attract' || !('speechSynthesis' in window)) return;
+  setTimeout(() => { try { const u = new SpeechSynthesisUtterance(text); u.rate = .9; u.pitch = 1.2; speechSynthesis.speak(u); } catch (e) {} }, delay || 0);
+}
+
+/* ---------- game flow ---------- */
+function toPlay() {
+  S.phase = 'play'; S.streak = 0; S.lead = -1; S.clearRun = 0; S.nagged = false; S.t0 = now;
+  S.scores = PUPPETS.map(() => ({score: 0}));
+  if (cfg.oneAtATime && S.mode !== 'attract') speak('Can you make a ' + PUPPETS[S.target].name + '?', 300);
+}
+function sparkle(x, y, n, speed, cols) {
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * TAU, v = speed * (.3 + Math.random());
+    S.parts.push({x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 0, max: .6 + Math.random() * .8, r: S.stage.h * (.012 + Math.random() * .016), c: cols[i % cols.length]});
+  }
+}
+function win(i) {
+  const pz = PUPPETS[i], st = S.stage, c = S.cards[i];
+  S.phase = 'win'; S.won = i; S.t0 = now; S.streak = 0;
+  sparkle(c.x + c.w / 2, c.y + c.h / 2, 30, st.h * 1.4, ['#fff', '#ffd23f', '#ff8ab5', '#7fe3ff']);
+  for (let k = 0; k < 8; k++) sparkle(st.x + st.w * rnd(k + now), st.y + (k % 2 ? 0 : st.h), 5, st.h, ['#fff', '#ffd23f']);
+  [523, 659, 784, 1047, 1319].forEach((f, k) => tone(f, .1 * k, .35));
+  speak('You made a ' + pz.name + '!', 300);
+  setTimeout(() => playFilm(i), 1800);
+}
+/* A real clip in videos/<id>.mp4 plays if it's there; otherwise the animal's own animated film runs on the canvas. */
+function playFilm(i) {
+  const pz = PUPPETS[i];
+  S.phase = 'film';
+  if (S.hasFilm[pz.id]) {
+    film.src = 'videos/' + pz.id + '.mp4'; film.hidden = false; film.muted = !cfg.sound; film.currentTime = 0;
+    const p = film.play();
+    if (p) p.catch(() => { film.muted = true; film.play().catch(() => { film.hidden = true; startCine(i); }); });
+    return;
+  }
+  startCine(i);
+}
+film.addEventListener('ended', endFilm);
+film.addEventListener('error', () => { if (!film.hidden) { film.hidden = true; startCine(S.won); } });
+film.addEventListener('click', endFilm);
+function startCine(i) {
+  const sc = SCENES[PUPPETS[i].id];
+  S.cine = {i, t0: now, len: sc.len};
+  score(sc.len, sc.root, sc.notes);
+  speak(PUPPETS[i].say, 1300);
+}
+function endFilm() {
+  if (S.phase !== 'film') return;
+  film.pause(); film.hidden = true; film.removeAttribute('src');
+  S.cine = null;
+  if (cfg.oneAtATime) { let n = S.target; while (n === S.target) n = Math.floor(Math.random() * PUPPETS.length); S.target = n; }
+  if (S.mode === 'camera') { S.phase = 'clear'; S.t0 = now; S.clearRun = 0; S.nagged = false; }
+  else toPlay();
+}
+function probeFilms() {                       // look once for any real clips sitting in videos/
+  if (location.protocol === 'file:') return;
+  for (const pz of PUPPETS) fetch('videos/' + pz.id + '.mp4', {method: 'HEAD'})
+    .then(r => { S.hasFilm[pz.id] = r.ok && /video|octet/.test(r.headers.get('content-type') || 'video'); }).catch(() => {});
+}
+
+/* ---------- the theatre: painted once per layout onto its own canvas ---------- */
+function buildTheatre() {
+  const c = S.bg || (S.bg = document.createElement('canvas')), W = S.W, H = S.H, F = S.free, st = S.stage;
+  c.width = W; c.height = H; ctx = c.getContext('2d');
+  ctx.fillStyle = '#12070a'; ctx.fillRect(0, 0, W, H);
+  /* boards */
+  const fy = st.y + st.h;
+  const g = ctx.createLinearGradient(0, fy, 0, F.y + F.h); g.addColorStop(0, '#5a3418'); g.addColorStop(1, '#2a160a');
+  ctx.fillStyle = g; ctx.fillRect(F.x, fy, F.w, F.y + F.h - fy);
+  ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.lineWidth = Math.max(1, F.h * .003);
+  for (let i = 1; i < 9; i++) { const x = F.x + F.w * i / 9; ctx.beginPath(); ctx.moveTo(x, fy); ctx.lineTo(F.x + F.w / 2 + (x - F.x - F.w / 2) * 1.5, F.y + F.h); ctx.stroke(); }
+  /* the stage: one even, bright light so hand shadows come out crisp */
+  const L = cfg.light, glow = ctx.createRadialGradient(st.x + st.w / 2, st.y + st.h * .45, 0, st.x + st.w / 2, st.y + st.h * .45, Math.hypot(st.w, st.h) * .6);
+  glow.addColorStop(0, `rgb(${L},${Math.round(L * .98)},${Math.round(L * .92)})`); glow.addColorStop(1, `rgb(${Math.round(L * .93)},${Math.round(L * .88)},${Math.round(L * .78)})`);
+  ctx.fillStyle = glow; ctx.fillRect(st.x, st.y, st.w, st.h);
+  /* gold frame */
+  ctx.lineWidth = F.h * .012; ctx.strokeStyle = '#c9932e'; ctx.strokeRect(st.x - ctx.lineWidth / 2, st.y - ctx.lineWidth / 2, st.w + ctx.lineWidth, st.h + ctx.lineWidth);
+  /* curtains, gathered at each side */
+  const cw = st.x - F.x - F.h * .006;
+  for (const side of [0, 1]) {
+    const x0 = side ? st.x + st.w + F.h * .006 : F.x, n = 5;
+    for (let i = 0; i < n; i++) {
+      const fx = x0 + cw * i / n, gr = ctx.createLinearGradient(fx, 0, fx + cw / n, 0);
+      gr.addColorStop(0, '#5c0a17'); gr.addColorStop(.5, '#b5182e'); gr.addColorStop(1, '#5c0a17');
+      ctx.fillStyle = gr; ctx.fillRect(fx, F.y, cw / n + 1, fy - F.y + F.h * .03);
+    }
+    ctx.fillStyle = '#e0a93a'; el(x0 + cw / 2, F.y + F.h * .52, cw * .42, F.h * .018);     // tie-back
+  }
+  /* valance with scallops */
+  const vh = st.y - F.y;
+  const vg = ctx.createLinearGradient(0, F.y, 0, st.y); vg.addColorStop(0, '#6a0c1a'); vg.addColorStop(1, '#a3152a');
+  ctx.fillStyle = vg; ctx.fillRect(F.x, F.y, F.w, vh * .82);
+  const k = 14, sw = F.w / k;
+  for (let i = 0; i < k; i++) { ctx.beginPath(); ctx.arc(F.x + sw * (i + .5), F.y + vh * .8, sw / 2, 0, Math.PI); ctx.fill(); }
+  ctx.fillStyle = '#e0a93a'; ctx.fillRect(F.x, F.y + vh * .74, F.w, vh * .06);
+  /* cards on the boards */
+  S.cards.forEach((cd, i) => {
+    rrect(cd.x, cd.y, cd.w, cd.h, cd.h * .12); ctx.fillStyle = '#f2e3c0'; ctx.fill();
+    ctx.save(); ctx.beginPath(); ctx.rect(cd.x, cd.y, cd.w, cd.h * .76); ctx.clip();
+    const s = Math.min(cd.w * .55, cd.h * .64);
+    ctx.translate(cd.x + cd.w / 2, cd.y + cd.h * .07); ctx.scale(s, s); ctx.fillStyle = '#231a26'; drawShape(PUPPETS[i].shape);
+    ctx.restore();
+    ctx.fillStyle = '#5a3418'; ctx.font = `800 ${Math.round(cd.h * .17)}px 'Baloo 2','Trebuchet MS',sans-serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic'; ctx.fillText(PUPPETS[i].name, cd.x + cd.w / 2, cd.y + cd.h * .93);
+  });
+  ctx = mainCtx;
+}
+
+/* Live bits drawn over the theatre, all off the stage: how close each card is, and the one being asked for. */
+function drawCards(t) {
+  const need = cfg.need / 100, live = S.mode !== 'attract';
+  S.cards.forEach((cd, i) => {
+    const want = cfg.oneAtATime && live && S.target === i;
+    if (cfg.oneAtATime && live && !want) { rrect(cd.x, cd.y, cd.w, cd.h, cd.h * .12); ctx.fillStyle = 'rgba(18,7,10,.62)'; ctx.fill(); }
+    if (want || (S.phase === 'win' && S.won === i)) {
+      ctx.save(); ctx.lineWidth = cd.h * .05; ctx.strokeStyle = `rgba(255,210,63,${.65 + .35 * Math.sin(t * 5)})`;
+      rrect(cd.x - cd.h * .04, cd.y - cd.h * .04, cd.w + cd.h * .08, cd.h * 1.08, cd.h * .15); ctx.stroke(); ctx.restore();
+    }
+    if (S.mode !== 'camera' || S.phase !== 'play') return;
+    const f = Math.min(1, ((S.scores[i] || {}).score || 0) / need), y = cd.y - cd.h * .1, w = cd.w * .8, x = cd.x + cd.w * .1;
+    rrect(x, y - cd.h * .03, w, cd.h * .06, cd.h * .03); ctx.fillStyle = 'rgba(0,0,0,.4)'; ctx.fill();
+    if (f > .02) { rrect(x, y - cd.h * .03, w * f, cd.h * .06, cd.h * .03); ctx.fillStyle = f >= 1 ? '#3ddc6b' : '#e0a93a'; ctx.fill(); }
+  });
+}
+/* Before play starts, and in tap-to-play, a soft pretend shadow drifts across the stage. */
+function drawFakeShadow(i, t, a) {
+  const st = S.stage, s = st.h * .62;
+  ctx.save(); ctx.globalAlpha = a; ctx.translate(st.x + st.w / 2 + Math.sin(t * .7) * st.w * .04, st.y + st.h * .42); ctx.rotate(Math.sin(t * .9) * .05);
+  ctx.scale(s, s); ctx.translate(0, -.5);
+  ctx.save(); ctx.beginPath(); ctx.rect(-5, -5, 10, 5 + (st.y + st.h - (st.y + st.h * .42)) / s + .5); ctx.clip();
+  ctx.fillStyle = 'rgba(40,30,40,.18)'; ctx.translate(.03, .03); drawShape(PUPPETS[i].shape); ctx.translate(-.03, -.03);
+  ctx.fillStyle = '#2b2230'; drawShape(PUPPETS[i].shape);
+  ctx.restore(); ctx.restore();
+}
+function drawParts(dt) {
+  S.parts = S.parts.filter(p => (p.life += dt) < p.max);
+  for (const p of S.parts) {
+    const f = p.life / p.max; ctx.globalAlpha = 1 - f;
+    p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= .97; p.vy *= .97;
+    ctx.beginPath();
+    for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4 + f * 3, q = (i % 2 ? .35 : 1) * p.r * (1 - f * .5); ctx.lineTo(p.x + Math.cos(a) * q, p.y + Math.sin(a) * q); }
+    ctx.closePath(); ctx.fillStyle = p.c; ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+/* ================= the films =================
+   Each animal gets a short shadow-theatre film: a dark cut-out animal against a glowing sky, drawn on a 1600×900 frame.
+   Times are in seconds from the start of the film. */
+const SIL = '#120c18';
+function sky(stops) { const g = ctx.createLinearGradient(0, 0, 0, 900); stops.forEach(([o, c]) => g.addColorStop(o, c)); ctx.fillStyle = g; ctx.fillRect(-200, -200, 2000, 1300); }
+function orb(x, y, r, core, halo) {
+  const g = ctx.createRadialGradient(x, y, r * .6, x, y, r * 4); g.addColorStop(0, halo); g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = g; ctx.fillRect(x - r * 4, y - r * 4, r * 8, r * 8); dot(x, y, r, core);
+}
+function stars(n, t, seed) { for (let i = 0; i < n; i++) dot(rnd(i + seed) * 1600, rnd(i + seed + 500) * 520, 1 + rnd(i + seed + 900) * 2, `rgba(255,255,255,${.35 + .45 * Math.abs(Math.sin(t * (.6 + rnd(i) * 1.5) + i))})`); }
+function ridge(base, amp, f, seed, col, shift) {
+  ctx.beginPath(); ctx.moveTo(-200, 1100);
+  for (let x = -200; x <= 1800; x += 20) {
+    const X = x + (shift || 0);
+    ctx.lineTo(x, base + amp * (Math.sin(X * f + seed) * .6 + Math.sin(X * f * 2.3 + seed * 1.7) * .3 + Math.sin(X * f * 5.1 + seed * .3) * .1));
+  }
+  ctx.lineTo(1800, 1100); ctx.closePath(); ctx.fillStyle = col; ctx.fill();
+}
+function pine(x, y, h, col) { ctx.fillStyle = col; for (let i = 0; i < 4; i++) { const w = h * (.34 - i * .07), yy = y - h * (.15 + i * .2); poly([[x - w, yy], [x + w, yy], [x, yy - h * .34]]); } ctx.fillRect(x - h * .03, y - h * .16, h * .06, h * .16); }
+function tufts(y, t, col, seed) {
+  ctx.strokeStyle = col; ctx.lineCap = 'round';
+  for (let i = 0; i < 70; i++) {
+    const x = rnd(i + seed) * 1700 - 50, h = 18 + rnd(i + seed + 70) * 34, sway = Math.sin(t * 1.6 + i) * 6;
+    ctx.lineWidth = 3 + rnd(i) * 3; ctx.beginPath(); ctx.moveTo(x, y + 4); ctx.quadraticCurveTo(x + sway * .5, y - h * .5, x + sway, y - h); ctx.stroke();
+  }
+}
+function cloud(x, y, s, col) { ctx.fillStyle = col; el(x, y, 90 * s, 26 * s); el(x - 40 * s, y - 14 * s, 48 * s, 30 * s); el(x + 30 * s, y - 22 * s, 56 * s, 36 * s); }
+function flies(t, n, seed, y0, y1) {
+  for (let i = 0; i < n; i++) {
+    const x = (rnd(i + seed) * 1600 + Math.sin(t * .4 + i) * 60), y = mix(y0, y1, rnd(i + seed + 40)) + Math.sin(t * .7 + i * 2) * 30;
+    const a = Math.max(0, Math.sin(t * 1.3 + i * 1.7));
+    orb(x, y, 3, `rgba(255,240,150,${a})`, `rgba(255,230,120,${a * .35})`);
+  }
+}
+function reed(x, y, h, t, col) {
+  const sway = Math.sin(t * 1.1 + x) * h * .05;
+  ctx.strokeStyle = col; ctx.lineWidth = 4; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(x, y); ctx.quadraticCurveTo(x + sway * .3, y - h * .6, x + sway, y - h); ctx.stroke();
+  ctx.fillStyle = col; el(x + sway * .95, y - h * .9, 7, 26, sway * .01);
+}
+function water(y, t, col, glint, gx) {
+  ctx.fillStyle = col; ctx.fillRect(-200, y, 2000, 1000);
+  for (let i = 0; i < 46; i++) {
+    const yy = y + 8 + Math.pow(rnd(i + 3), 1.6) * 360, w = 30 + rnd(i + 9) * 120, x = (gx != null ? gx + (rnd(i) - .5) * (yy - y) * 1.1 : rnd(i + 5) * 1600) + Math.sin(t * .8 + i) * 18;
+    ctx.globalAlpha = .25 + .45 * Math.abs(Math.sin(t * 1.4 + i)); ctx.fillStyle = glint; ctx.fillRect(x - w / 2, yy, w, 2.5);
+  }
+  ctx.globalAlpha = 1;
+}
+
+/* ---------- the animals: cut-out silhouettes facing right, about 100 units long, feet at y = 0 ---------- */
+function rabbit(x, y, s, hop, twitch) {
+  ctx.save(); ctx.translate(x, y); ctx.scale(s / 100, s / 100); ctx.fillStyle = SIL;
+  const l = Math.sin(Math.PI * hop);
+  ctx.rotate(-.22 * l * (hop < .5 ? 1 : -.6));
+  el(-30 - l * 16, -10, 34 + l * 12, 12, l * .5); el(-40 - l * 26, -4, 26, 7, l * .8);
+  el(0, -42, 52 + l * 8, 36 - l * 4, -.15 - l * .15); el(30, -48, 26, 28);
+  cap(34, -30, 42 + l * 18, -4 + l * 4, 12);
+  el(50, -84, 26, 23, -.2); el(70, -78, 12, 10);
+  ctx.save(); ctx.translate(42, -100); ctx.rotate(-.35 + twitch - l * .3); el(0, -30, 9, 32); ctx.restore();
+  ctx.save(); ctx.translate(52, -102); ctx.rotate(-.1 + twitch * .6 - l * .3); el(0, -30, 9, 30); ctx.restore();
+  ctx.fillStyle = '#ece6dc'; el(-52, -50, 13, 12);
+  ctx.fillStyle = '#fff4d0'; el(60, -88, 3.5, 3.5);
+  ctx.restore();
+}
+function dog(x, y, s, t, run, wag, bark, tilt) {
+  ctx.save(); ctx.translate(x, y); ctx.scale(s / 100, s / 100); ctx.fillStyle = SIL;
+  const bob = run ? Math.abs(Math.sin(t * 11)) * 5 : 0;
+  ctx.translate(0, -bob);
+  [[40, 0], [-45, Math.PI], [32, Math.PI * .5], [-37, Math.PI * 1.5]].forEach(([lx, ph]) => {
+    const sw = Math.sin(t * 11 + ph) * 24 * run;
+    cap(lx, -58, lx + sw, bob - 4, 12);
+  });
+  el(0, -72, 62, 26); el(42, -78, 26, 30);
+  cap(-56, -84, -78 + Math.sin(wag) * 6, -110 + Math.cos(wag) * 8, 9);
+  cap(48, -90, 62, -112, 24);
+  ctx.save(); ctx.translate(68, -118); ctx.rotate(tilt);
+  el(0, 0, 22, 19); el(22, 4 - bark * 4, 20, 10); el(40, 0 - bark * 4, 6, 5);
+  if (bark > 0) { ctx.save(); ctx.translate(8, 12); ctx.rotate(.2 + bark * .35); el(14, 0, 18, 5); ctx.restore(); }
+  el(-8, 2, 9, 18, .45 + Math.sin(t * 9) * .1 * run);
+  ctx.fillStyle = '#fff4d0'; el(8, -6, 3.2, 3.2);
+  ctx.restore(); ctx.restore();
+}
+function bird(x, y, s, t, flap, tilt) {
+  ctx.save(); ctx.translate(x, y); ctx.scale(s / 100, s / 100); ctx.rotate(tilt || 0); ctx.fillStyle = SIL;
+  const f = Math.sin(t * 9) * flap + (1 - flap) * .25;
+  const wing = k => { ctx.save(); ctx.scale(1, k); poly([[16, -2], [6, -70 * f], [-24, -104 * f], [-50, -96 * f], [-70, -62 * f], [-34, -12 * f]]); ctx.restore(); };
+  ctx.globalAlpha = .75; ctx.translate(6, -4); wing(.8); ctx.translate(-6, 4); ctx.globalAlpha = 1;
+  el(0, 0, 36, 14, -.08); el(34, -8, 13, 12); poly([[44, -11], [62, -6], [44, -3]]); poly([[-28, -4], [-64, -16], [-62, 10]]);
+  wing(1);
+  ctx.fillStyle = '#fff4d0'; el(38, -11, 2.4, 2.4);
+  ctx.restore();
+}
+function swan(x, y, s, t, dip) {
+  ctx.save(); ctx.translate(x, y); ctx.scale(s / 100, s / 100); ctx.fillStyle = SIL;
+  ctx.translate(0, Math.sin(t * 1.5) * 2);
+  el(-5, -14, 62, 22); el(-15, -26, 45, 16, -.1); poly([[-52, -22], [-92, -46], [-60, -6]]);
+  ctx.beginPath(); ctx.moveTo(38, -20); ctx.bezierCurveTo(72, -50, 18 + dip * 30, -88 + dip * 40, 40 + dip * 30, -118 + dip * 66);
+  ctx.lineWidth = 13; ctx.lineCap = 'round'; ctx.strokeStyle = SIL; ctx.stroke();
+  ctx.translate(dip * 30, dip * 66);
+  el(48, -120, 14, 10, .2);
+  ctx.fillStyle = '#e8742c'; poly([[56, -125], [80, -114], [57, -113]]);
+  ctx.fillStyle = '#fff4d0'; el(48, -123, 2.4, 2.4);
+  ctx.restore();
+}
+function deer(x, y, s, t, walk, head, leap) {
+  ctx.save(); ctx.translate(x, y); ctx.scale(s / 100, s / 100); ctx.fillStyle = SIL;
+  const legs = [[40, 0, 1], [-42, Math.PI, -1], [30, Math.PI, 1], [-34, 0, -1]];
+  for (const [lx, ph, side] of legs) {
+    const a = Math.sin(t * 6 + ph) * .38 * walk + leap * side * .9;
+    const kx = lx + Math.sin(a) * 36, ky = -75 + Math.cos(a) * 36, fa = a + (side > 0 ? -1 : 1) * leap * .9;
+    cap(lx, -78, kx, ky, 11); cap(kx, ky, kx + Math.sin(fa) * 38, ky + Math.cos(fa) * 38, 8);
+  }
+  el(0, -88, 55, 22); el(-40, -90, 22, 22); el(38, -92, 22, 24);
+  ctx.fillStyle = '#ece6dc'; el(-60, -98, 7, 11, -.4); ctx.fillStyle = SIL;
+  const hx = head < 0 ? mix(80, 96, -head) : mix(80, 74, head), hy = head < 0 ? mix(-142, -24, -head) : mix(-142, -160, head);
+  cap(40, -100, hx - 6, hy + 6, 20);
+  ctx.save(); ctx.translate(hx, hy); ctx.rotate(head < 0 ? -head * 1.2 : -head * .2);
+  el(0, 0, 16, 11, .25); el(15, 6, 11, 7, .3);
+  el(-8, -10, 5, 12, -.7); el(-1, -12, 5, 12, -.3);
+  ctx.strokeStyle = SIL; ctx.lineCap = 'round'; ctx.lineWidth = 4;
+  for (const [bx, lean] of [[-6, -1], [2, .4]]) {
+    ctx.beginPath(); ctx.moveTo(bx, -10); ctx.quadraticCurveTo(bx + lean * 6 - 10, -34, bx + lean * 10 - 16, -52); ctx.stroke();
+    for (const k of [.35, .65]) { const yy = -10 - 42 * k, xx = bx + (lean * 10 - 16) * k; ctx.beginPath(); ctx.moveTo(xx, yy); ctx.lineTo(xx + 8, yy - 12); ctx.stroke(); }
+  }
+  ctx.fillStyle = '#fff4d0'; el(6, -2, 2.6, 2.6);
+  ctx.restore(); ctx.restore();
+}
+function croc(x, y, s, t, jaw, swim) {
+  ctx.save(); ctx.translate(x, y); ctx.scale(s / 100, s / 100); ctx.fillStyle = SIL;
+  ctx.beginPath(); ctx.moveTo(-50, -14);
+  for (let i = 0; i <= 12; i++) { const X = -50 - i * 10, w = 14 * (1 - i / 13); ctx.lineTo(X, Math.sin(t * 3 - i * .5) * 6 * swim - w); }
+  for (let i = 12; i >= 0; i--) { const X = -50 - i * 10, w = 14 * (1 - i / 13); ctx.lineTo(X, Math.sin(t * 3 - i * .5) * 6 * swim + w); }
+  ctx.closePath(); ctx.fill();
+  el(-10, 0, 70, 20);
+  for (let i = 0; i < 9; i++) poly([[-60 + i * 12, -16], [-54 + i * 12, -26], [-48 + i * 12, -16]]);
+  cap(-40, 10, -55 + Math.sin(t * 4) * 6 * swim, 26, 9); cap(30, 10, 20 - Math.sin(t * 4) * 6 * swim, 26, 9);
+  ctx.save(); ctx.translate(55, -2);
+  ctx.save(); ctx.rotate(jaw * .28); poly([[0, 0], [78, 2], [70, 10], [0, 12]]);
+  if (jaw > .05) { ctx.fillStyle = '#f4efe6'; for (let i = 0; i < 6; i++) poly([[12 + i * 10, 1], [16 + i * 10, -6], [20 + i * 10, 1]]); }
+  ctx.restore();
+  ctx.save(); ctx.rotate(-jaw * .6); ctx.fillStyle = SIL; poly([[0, -14], [74, -8], [82, -2], [0, 2]]);
+  if (jaw > .05) { ctx.fillStyle = '#f4efe6'; for (let i = 0; i < 6; i++) poly([[12 + i * 10, -1], [16 + i * 10, 6], [20 + i * 10, -1]]); }
+  ctx.fillStyle = SIL; el(-4, -16, 10, 8); ctx.fillStyle = '#ffd84a'; el(-2, -18, 3.2, 3.2);
+  ctx.restore(); ctx.restore(); ctx.restore();
+}
+
+/* ---------- the scenes ---------- */
+const SCENES = {
+  rabbit: {len: 12, root: 392, notes: 14, draw(t) {
+    sky([[0, '#0b1636'], [.55, '#2a3d78'], [1, '#7a86c0']]);
+    stars(70, t, 3); orb(1180, 230, 84, '#fbf3d6', 'rgba(250,240,200,.35)');
+    ridge(560, 60, .004, 1, '#2a356a'); ridge(640, 40, .006, 4, '#1b2350');
+    flies(t, 14, 7, 520, 760);
+    ridge(770, 16, .01, 9, '#0d1130');
+    /* hop in, sit and listen, hop off to the burrow and pop down it */
+    let x, hop = 0;
+    if (t < 5) { const p = span(t, .4, 5); x = mix(-160, 700, p); hop = p > 0 && p < 1 ? (t * 1.4) % 1 : 0; }
+    else if (t < 8.2) x = 700;
+    else { const p = span(t, 8.2, 10.6); x = mix(700, 1170, p); hop = p > 0 && p < 1 ? ((t - 8.2) * 1.4) % 1 : 0; }
+    const twitch = t > 5.3 && t < 8 ? Math.sin(t * 9) * .12 * (Math.sin(t * 2) > .3 ? 1 : 0) : 0;
+    const sink = span(t, 10.6, 11.2) * 140;
+    ctx.save(); ctx.beginPath(); ctx.rect(-200, -200, 2000, 978); ctx.clip();
+    rabbit(x, 776 - Math.sin(Math.PI * hop) * 70 + sink, 150, hop, twitch);
+    ctx.restore();
+    ctx.fillStyle = '#05060f'; el(1180, 780, 80, 16);
+    tufts(780, t, '#0a0d24', 11);
+  }},
+  dog: {len: 12, root: 440, notes: 12, draw(t) {
+    sky([[0, '#4b2a8a'], [.45, '#e0567e'], [.75, '#ff9a5a'], [1, '#ffd08a']]);
+    orb(800, 650, 130, '#ffe6a8', 'rgba(255,200,120,.45)');
+    cloud(330 + t * 8, 220, 1.2, 'rgba(255,190,200,.4)'); cloud(1250 - t * 6, 300, 1, 'rgba(255,170,170,.35)');
+    ridge(620, 50, .003, 2, '#9b3a6e'); ridge(690, 40, .005, 6, '#5e2457');
+    ridge(765, 14, .006, 3, '#160a1e');
+    ctx.fillStyle = '#160a1e'; ctx.fillRect(196, 520, 18, 280); el(205, 470, 120, 90); el(150, 520, 70, 50); el(270, 510, 80, 55);
+    /* trot in, stop and bark twice, trot off */
+    let x, run;
+    if (t < 4.6) { x = mix(-200, 780, span(t, .3, 4.6)); run = t < 4.3 ? 1 : 0; }
+    else if (t < 8.6) { x = 780; run = 0; }
+    else { x = mix(780, 1900, span(t, 8.6, 11.6)); run = 1; }
+    const bark = Math.max(0, Math.sin((t - 6) * 9)) * (t > 6 && t < 6.35 || t > 6.7 && t < 7.05 ? 1 : 0);
+    const tilt = t > 4.8 && t < 5.9 ? Math.sin((t - 4.8) * Math.PI / 1.1) * .3 : 0;
+    dog(x, 772, 170, t, run, t * (run ? 14 : 22), bark, tilt);
+    tufts(776, t, '#160a1e', 21);
+  }},
+  bird: {len: 12, root: 523, notes: 16, draw(t) {
+    sky([[0, '#5b8fd8'], [.5, '#f0a0b8'], [.82, '#ffd2a0'], [1, '#fff0c8']]);
+    orb(420, 640 - t * 14, 90, '#fff6d8', 'rgba(255,230,170,.5)');
+    cloud(200 + t * 20, 250, 1.4, 'rgba(255,255,255,.55)'); cloud(1100 + t * 12, 180, 1.1, 'rgba(255,255,255,.5)'); cloud(1450 + t * 16, 380, .8, 'rgba(255,235,240,.5)');
+    ridge(600, 120, .003, 5, '#8a7bb8', t * 10); ridge(690, 80, .004, 8, '#5c4f8e', t * 22); ridge(790, 40, .006, 2, '#241c40', t * 50);
+    /* a flock far away, then one bird swoops up close and soars across */
+    for (let i = 0; i < 7; i++) { const k = i - 3; bird(mix(1900, -300, t / 12) + Math.abs(k) * 34, 170 + k * 18 + Math.abs(k) * 8, 22, t + i * .3, 1, 0); }
+    const x = mix(-220, 1850, span(t, .6, 11.4)), y = 500 + Math.sin(t * .9) * 90 - span(t, 4, 7) * 60;
+    const glide = t > 5 && t < 7.5 ? .15 : 1;
+    bird(x, y, 210, t, glide, Math.cos(t * .9) * -.18);
+  }},
+  swan: {len: 12, root: 349, notes: 12, draw(t) {
+    sky([[0, '#8a3d78'], [.4, '#f07a6a'], [.62, '#ffc070'], [.66, '#ffd890']]);
+    orb(1100, 520, 92, '#fff0b8', 'rgba(255,220,140,.5)');
+    ridge(570, 22, .008, 4, '#4a1f3c');
+    for (let i = 0; i < 22; i++) { const x = i * 80 + rnd(i) * 40 - 40, h = 50 + rnd(i + 3) * 70; ctx.fillStyle = '#3a1630'; el(x, 590 - h * .5, h * .35, h * .55); }
+    water(590, t, '#c86a5e', '#ffe6a8', 1100);
+    /* glide in with three cygnets, dip for a drink, glide on */
+    const x = mix(-180, 860, span(t, .2, 6.5)) + span(t, 9, 12) * 300, dip = Math.sin(Math.PI * span(t, 6.8, 8.6)) * .9;
+    const each = (fn, k) => {
+      ctx.save(); ctx.beginPath(); ctx.rect(-200, -200, 2000, 900); ctx.clip(); fn(); ctx.restore();
+      ctx.save(); ctx.translate(0, 2 * 700); ctx.scale(1, -1); ctx.globalAlpha = .28 * k; ctx.beginPath(); ctx.rect(-200, -200, 2000, 900); ctx.clip(); fn(); ctx.restore();
+    };
+    ctx.strokeStyle = 'rgba(255,230,190,.4)'; ctx.lineWidth = 2;
+    for (let i = 1; i < 5; i++) { const r = ((t * 40 + i * 50) % 220); ctx.beginPath(); ctx.moveTo(x - 20 - r, 700 + r * .18); ctx.lineTo(x - 20, 700); ctx.lineTo(x - 20 - r, 700 - r * .03); ctx.stroke(); }
+    each(() => swan(x, 700, 210, t, dip), 1);
+    for (let i = 0; i < 3; i++) { const cx = x - 200 - i * 110 + Math.sin(t * 2 + i) * 8, show = span(t, 2.5 + i * .6, 3.5 + i * .6); if (show > 0) each(() => swan(cx, 704, 70, t + i, 0), show); }
+    for (let i = 0; i < 9; i++) reed(1300 + i * 34 + rnd(i) * 20, 900, 210 + rnd(i + 2) * 130, t, '#2a0f24');
+  }},
+  deer: {len: 12, root: 330, notes: 12, draw(t) {
+    sky([[0, '#1c2c46'], [.55, '#4f6c8c'], [1, '#d6bfa4']]);
+    orb(1280, 300, 40, 'rgba(255,248,230,.9)', 'rgba(255,240,210,.2)');
+    for (let i = 0; i < 26; i++) pine(i * 70 + rnd(i) * 30 - 40, 640, 220 + rnd(i + 1) * 120, '#3d5070');
+    const fog = (y, a) => { const g = ctx.createLinearGradient(0, y - 80, 0, y + 40); g.addColorStop(0, 'rgba(220,225,235,0)'); g.addColorStop(1, `rgba(220,225,235,${a})`); ctx.fillStyle = g; ctx.fillRect(-200, y - 80, 2000, 120); };
+    fog(650, .45);
+    for (let i = 0; i < 18; i++) pine(i * 100 + rnd(i + 7) * 60 - 60, 740, 300 + rnd(i + 8) * 160, '#24304a');
+    fog(760, .35);
+    ridge(772, 12, .008, 7, '#0e1220');
+    flies(t, 16, 31, 540, 780);
+    /* walk in, graze, look up at you, leap away */
+    let x, walk = 0, leap = 0, lift = 0;
+    if (t < 4.2) { x = mix(-200, 720, span(t, .3, 4.2)); walk = t < 4 ? 1 : 0; }
+    else if (t < 9.2) x = 720;
+    else { x = mix(720, 1900, span(t, 9.2, 11.6)); leap = 1; lift = Math.abs(Math.sin((t - 9.2) * 3.4)) * 120; }
+    const head = t < 4.5 ? 0 : t < 7.2 ? -span(t, 4.5, 5.3) * (1 - span(t, 6.6, 7.2)) : span(t, 7.2, 7.8) * .6 * (1 - span(t, 9, 9.3));
+    deer(x, 776 - lift, 190, t, walk, head + Math.sin(t * 6) * .04 * walk, leap * Math.min(1, lift / 60));
+  }},
+  crocodile: {len: 12, root: 294, notes: 10, draw(t) {
+    sky([[0, '#06121f'], [.5, '#103452'], [.66, '#2d6b80']]);
+    stars(60, t, 41); orb(480, 210, 76, '#f4f0dc', 'rgba(230,240,230,.3)');
+    for (let i = 0; i < 14; i++) {
+      const x = i * 130 + rnd(i + 5) * 60, h = 120 + rnd(i + 6) * 160;
+      ctx.fillStyle = '#071520'; cap(x, 600, x + 20, 600 - h, 10);
+      for (let k = 0; k < 6; k++) { ctx.save(); ctx.translate(x + 20, 600 - h); ctx.rotate(k / 6 * TAU + Math.sin(t + i) * .05); el(40, 0, 44, 9); ctx.restore(); }
+    }
+    ridge(600, 10, .01, 3, '#071520');
+    water(600, t, '#0f3346', '#d8ecdc', 480);
+    /* glide in low, rise, open wide... SNAP, then sink away */
+    const x = mix(-260, 760, span(t, .3, 5.2)), rise = span(t, 5.4, 6.2) * (1 - span(t, 9, 10.4)) * 26;
+    const jaw = t < 6.2 ? 0 : t < 7.3 ? span(t, 6.2, 7) : t < 7.45 ? 1 - span(t, 7.3, 7.45) : t < 8.2 ? 0 : t < 8.6 ? span(t, 8.2, 8.5) * .5 : 1 - span(t, 8.6, 8.7);
+    const wy = 600, cy = 618 - rise;
+    ctx.save(); ctx.beginPath(); ctx.rect(-200, wy, 2000, 600); ctx.clip(); ctx.globalAlpha = .28; croc(x, cy, 300, t, jaw, 1); ctx.restore();
+    ctx.save(); ctx.beginPath(); ctx.rect(-200, -200, 2000, wy + 200); ctx.clip(); croc(x, cy, 300, t, jaw, 1); ctx.restore();
+    ctx.strokeStyle = 'rgba(220,240,230,.35)'; ctx.lineWidth = 2;
+    for (let i = 1; i < 4; i++) { const r = (t * 50 + i * 60) % 240; ctx.beginPath(); ctx.ellipse(x + 200, wy + 4, r, r * .12, 0, 0, TAU); ctx.stroke(); }
+    if (S.cine && !S.cine.snap && t > 7.4) { S.cine.snap = true; noise(0, .25, .6, 1500, 4000); noise(.05, .6, .3, 300, 1200); }
+    if (t > 7.4 && t < 8.4) for (let i = 0; i < 18; i++) { const k = (t - 7.4) / 1, a = -Math.PI * rnd(i), r = k * (80 + rnd(i + 1) * 160); dot(x + 380 + Math.cos(a) * r, wy + Math.sin(a) * r + k * k * 120, 5 * (1 - k), 'rgba(220,240,240,.8)'); }
+  }}
+};
+function drawCine(t, dt) {
+  const c = S.cine, pz = PUPPETS[c.i], sc = SCENES[pz.id], W = S.W, H = S.H;
+  const k = Math.max(W / 1600, H / 900), z = 1 + .05 * t / c.len;
+  ctx.save();
+  ctx.setTransform(k * z, 0, 0, k * z, (W - 1600 * k * z) / 2, (H - 900 * k * z) / 2);
+  sc.draw(t);
+  if (pz.id === 'dog' && !c.woofed && t > 6) { c.woofed = true; woof(0); woof(.7); }
+  ctx.restore();
+  /* letterbox bars, title and caption in screen space */
+  const bar = H * .11 * span(t, 0, .8) * (1 - span(t, c.len - .6, c.len));
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, bar); ctx.fillRect(0, H - bar, W, bar);
+  const fs = Math.min(W * .06, H * .1), ta = span(t, 1, 1.8) * (1 - span(t, 4.4, 5.2));
+  if (ta > 0) {
+    ctx.globalAlpha = ta; ctx.fillStyle = '#fff6dc'; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+    ctx.font = `800 ${Math.round(fs)}px 'Baloo 2', sans-serif`; ctx.shadowColor = 'rgba(0,0,0,.6)'; ctx.shadowBlur = fs * .3;
+    ctx.fillText(pz.title, W * .06, H * .3); ctx.shadowBlur = 0; ctx.globalAlpha = 1;
+  }
+  const ca = span(t, 1.3, 2) * (1 - span(t, c.len - 1.6, c.len - .8));
+  if (ca > 0 && bar > H * .05) {
+    ctx.globalAlpha = ca; ctx.fillStyle = '#e8ecf4'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    let cs = Math.min(H * .04, W * .028); ctx.font = `700 ${Math.round(cs)}px Nunito, sans-serif`;
+    while (ctx.measureText(pz.say).width > W * .92 && cs > 10) { cs -= 1; ctx.font = `700 ${Math.round(cs)}px Nunito, sans-serif`; }
+    ctx.fillText(pz.say, W / 2, H - bar / 2); ctx.globalAlpha = 1;
+  }
+  const fade = Math.max(1 - span(t, 0, .7), span(t, c.len - .7, c.len));
+  if (fade > 0) { ctx.fillStyle = `rgba(0,0,0,${fade})`; ctx.fillRect(0, 0, W, H); }
+  if (t >= c.len) endFilm();
+}
+
+/* ---------- frame loop ---------- */
+let last = 0;
+function frame(ms) {
+  now = ms / 1000; const dt = Math.min(.05, now - last); last = now; ctx = mainCtx;
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.fillStyle = '#000'; ctx.fillRect(0, 0, S.W, S.H);
+  const sc = S.scene;
+  try {
+    if (S.cine) drawCine(now - S.cine.t0, dt);
+    else if (sc && sc.type === 'dot') { const [x, y] = sc.p || DOTS[sc.i]; dot(x * S.W, y * S.H, Math.min(S.W, S.H) * .06, '#fff'); }
+    else if (!sc || sc.type === 'base') {
+      if (S.bg) ctx.drawImage(S.bg, 0, 0);
+      if (!sc) {
+        if (S.mode === 'attract') {                            // show off the shapes, one after another
+          const per = 4.5, i = Math.floor(now / per) % PUPPETS.length, f = (now % per) / per;
+          drawFakeShadow(i, now, Math.min(1, f * 5, (1 - f) * 5));
+        } else if (S.mode === 'demo' && S.fake != null) drawFakeShadow(S.fake, now, Math.min(1, (now - S.fakeT) * 3));
+        drawCards(now);
+        drawParts(dt);
+        if (S.mode === 'demo' && S.fake != null && S.phase === 'play' && now - S.fakeT > 1.1) { const i = S.fake; S.fake = null; win(i); }
+        if (S.mode === 'demo' && S.phase === 'win' && now - S.t0 > 1.5) S.fake = null;
+        if (S.mode === 'camera' && S.phase === 'clear' && now - S.t0 > 1) {
+          ctx.fillStyle = 'rgba(255,242,214,.85)'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+          ctx.font = `800 ${Math.round(S.free.h * .045)}px 'Baloo 2', sans-serif`;
+          ctx.fillText('Hands out of the light for the next one', S.stage.x + S.stage.w / 2, S.stage.y - S.free.h * .015);
+        }
+      }
+    }
+  } catch (e) { console.error(e); }
+  try { drawAim(); } catch (e) {}
+  requestAnimationFrame(frame);
+}
+
+/* ---------- controls ---------- */
+function showSheet(open) {
+  sheet.hidden = !open; $('gear').hidden = open;
+  const live = S.mode !== 'attract';
+  $('resume').hidden = !live; $('howto').hidden = live;
+  $('go').textContent = S.mode === 'camera' ? 'Line up camera again' : 'Start with camera';
+  $('go').classList.toggle('primary', !live); $('resume').classList.toggle('primary', live);
+  $('demo').hidden = S.mode === 'demo';
+  layout();
+}
+async function backToPlay() {
+  showSheet(false);
+  if (S.mode === 'camera' && S.Hm) { try { await rebase(); } catch (e) {} }   // the stage moved, so photograph it empty again
+}
+function goBig() {
+  try { const p = document.documentElement.requestFullscreen && document.documentElement.requestFullscreen(); if (p) p.then(() => { try { screen.orientation.lock(screen.orientation.type).catch(() => {}); } catch (e) {} }).catch(() => {}); } catch (e) {}
+  try { if (navigator.wakeLock) navigator.wakeLock.request('screen').catch(() => {}); } catch (e) {}
+}
+/* The line-up between projector and camera is saved, so a fixed rig only flashes the dots once.
+   It's the same rig for every game, so Block Table's saved line-up is a fine starting point too. */
+const LINEUP = 'shadowPuppetsLineup';
+function loadLineup() {
+  for (const key of [LINEUP, 'blockTableLineup']) {
+    try { const m = JSON.parse(localStorage.getItem(key) || 'null'); if (Array.isArray(m) && m.length === 8 && m.every(Number.isFinite)) return m; } catch (e) {}
+  }
+  return null;
+}
+async function begin(fresh) {
+  if (S.busy) return false;
+  S.busy = true; initAudio(); goBig(); note('Opening the camera…');
+  try {
+    await startCamera();
+    S.mode = 'camera'; note(''); showSheet(false);
+    const saved = fresh ? null : loadLineup();
+    if (saved) { S.Hm = saved; await rebase(); lockCamera(); }
+    else { await calibrate(); try { localStorage.setItem(LINEUP, JSON.stringify(S.Hm)); } catch (e) {} }
+    toPlay();
+    return true;
+  } catch (e) {
+    S.scene = null; S.Hm = null;
+    if (S.mode === 'camera') S.mode = 'attract';
+    showSheet(true); note(e.message); showAim();
+    return false;
+  } finally { S.busy = false; }
+}
+function showAim() { if (video.srcObject) $('aim').hidden = false; }
+const aimCv = $('aimView'), aimCtx = aimCv.getContext('2d');
+function drawAim() {
+  if ($('aim').hidden || sheet.hidden || !video.videoWidth) return;
+  const w = 480, vh = Math.round(480 * video.videoHeight / video.videoWidth), h = vh + (S.Hm ? 60 : 0);
+  if (aimCv.width !== w || aimCv.height !== h) { aimCv.width = w; aimCv.height = h; }
+  aimCtx.fillStyle = '#000'; aimCtx.fillRect(0, 0, w, h);
+  aimCtx.drawImage(video, 0, 0, w, vh);
+  if (!S.Hm) return;
+  const st = S.stage, corners = [[st.x, st.y], [st.x + st.w, st.y], [st.x + st.w, st.y + st.h], [st.x, st.y + st.h]];
+  aimCtx.lineWidth = 2.5; aimCtx.strokeStyle = '#ffd23f'; aimCtx.beginPath();
+  corners.forEach(([x, y], i) => { const [u, v] = project(S.Hm, x / S.W, y / S.H); i ? aimCtx.lineTo(u * w, v * vh) : aimCtx.moveTo(u * w, v * vh); });
+  aimCtx.closePath(); aimCtx.stroke();
+  if (S.base && S.cells.length) {
+    readMask();                                               // a live reading, even with the sheet open
+    aimCtx.fillStyle = '#ff4b4b';
+    S.cells.forEach((k, i) => { if (k >= 0 && S.mask[i]) { const p = k / 4; aimCtx.fillRect((p % S.pw) / S.pw * w - 1.5, Math.floor(p / S.pw) / S.ph * vh - 1.5, 3, 3); } });
+    if (now - (S.aimT || 0) > .5) { S.aimT = now; S.aimScores = match(S.mask); }
+    aimCtx.font = '700 13px Nunito, sans-serif'; aimCtx.textBaseline = 'top'; aimCtx.textAlign = 'left';
+    PUPPETS.forEach((pz, i) => {
+      const sc = Math.round(((S.aimScores || [])[i] || {score: 0}).score * 100), x = 8 + (i % 3) * 158, y = vh + 8 + Math.floor(i / 3) * 24;
+      aimCtx.fillStyle = sc >= cfg.need ? '#3ddc6b' : '#9ba7c2'; aimCtx.fillText(`${pz.name} ${sc}%`, x, y);
+    });
+  }
+}
+$('aimBtn').onclick = async () => {
+  if (video.srcObject && video.srcObject.active) return showAim();
+  note('Opening the camera…');
+  try { await startCamera(); note(''); showAim(); } catch (e) { note(e.message); }
+};
+$('go').onclick = () => begin(true);
+addEventListener('keydown', e => {
+  if ((e.key === 'c' || e.key === 'C') && S.mode === 'camera') begin(true);
+  if (e.key === 'Escape' && S.phase === 'film') endFilm();
+});
+$('demo').onclick = () => { initAudio(); S.mode = 'demo'; S.Hm = null; note(''); showSheet(false); toPlay(); };
+$('resume').onclick = backToPlay;
+$('gear').onclick = () => showSheet(true);
+
+/* Tap-to-play: tap a card (or the stage) and its shadow appears, then the film. Tapping during a film skips it. */
+cv.addEventListener('pointerdown', e => {
+  if (S.phase === 'film' && S.cine) { endFilm(); return; }
+  if (S.mode !== 'demo' || S.scene || S.phase !== 'play' || S.fake != null) return;
+  const r = cv.getBoundingClientRect(), x = (e.clientX - r.left) / r.width * S.W, y = (e.clientY - r.top) / r.height * S.H;
+  let i = S.cards.findIndex(c => x >= c.x && x <= c.x + c.w && y >= c.y && y <= c.y + c.h * 1.3);
+  const st = S.stage;
+  if (i < 0 && x >= st.x && x <= st.x + st.w && y >= st.y && y <= st.y + st.h) i = cfg.oneAtATime ? S.target : Math.floor(Math.random() * PUPPETS.length);
+  if (i < 0) return;
+  initAudio(); S.fake = i; S.fakeT = now;
+});
+
+const knobs = {need: v => v + '%', hold: v => '~' + (v * .2).toFixed(1) + ' s', sens: v => v + '%', light: v => Math.round(v / 2.55) + '%'};
+for (const k in knobs) {
+  const inp = $(k), out = $(k + 'Out');
+  inp.value = cfg[k]; out.textContent = knobs[k](cfg[k]);
+  inp.oninput = () => { cfg[k] = +inp.value; out.textContent = knobs[k](cfg[k]); save(); if (k === 'light') buildTheatre(); };
+}
+for (const k of ['sound', 'front', 'oneAtATime']) {
+  const inp = $(k); inp.checked = cfg[k];
+  inp.onchange = () => { cfg[k] = inp.checked; save(); if (k === 'oneAtATime') toPlay(); };
+}
+addEventListener('resize', layout);
+window.shadowPuppets = {S, PUPPETS, SCENES, match, tidy, drawShape, startCine, layout};   // handy for poking at state from the console
+layout();
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(buildTheatre);   // repaint the card names once the font arrives
+probeFilms();
+requestAnimationFrame(frame);
+if (location.hash === '#demo') $('demo').click();
+if (location.hash === '#kiosk') {          // a fixed rig: start by itself, reusing the saved line-up
+  document.documentElement.classList.add('kiosk');
+  (async () => { for (let i = 0; i < 8; i++) { if (await begin(false)) return; await sleep(4000); } })();
+}
+})();
+</script>
+</body>
+</html>
