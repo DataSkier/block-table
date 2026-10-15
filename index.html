@@ -477,9 +477,10 @@ function sense() {
   for (const [sl, c] of covers) sl.cover = c;
   for (const st of S.st) {
     if (st.learning) continue;
-    let allEmpty = true;
+    let allEmpty = true, anyFull = false;
     st.slots.forEach((s, i) => {
-      if (s.cover > .2) allEmpty = false;
+      if (s.cover >= need * .6) allEmpty = false;
+      if (s.cover >= need) anyFull = true;
       if (st.phase !== 'play') return;
       s.score = Math.max(0, Math.min(3, s.score + (s.cover >= need ? 1 : s.cover < need * .6 ? -1 : 0)));
       if (!s.filled && s.score >= 3) fill(st, i);
@@ -487,7 +488,10 @@ function sense() {
     });
     if (st.phase === 'clear') {
       st.emptyRun = allEmpty ? st.emptyRun + 1 : 0;
-      if (st.emptyRun >= 5 && now - st.t0 > 2.4) nextPuzzle(st);
+      st.fullRun = anyFull ? 0 : (st.fullRun || 0) + 1;
+      const waited = now - st.t0;
+      if ((st.emptyRun >= 4 && waited > 2.4) || (waited > 8 && st.fullRun > 12)) nextPuzzle(st);
+      else if (waited > 6 && !st.nagged) { st.nagged = true; speak('Take the blocks away for a new puzzle'); }
     }
   }
 }
@@ -512,7 +516,7 @@ function speak(text) {
 function nextPuzzle(st) {
   let i = S.cursor++ % PUZZLES.length;
   for (let k = 0; k < PUZZLES.length && S.st.some(o => o !== st && o.idx === i); k++) i = S.cursor++ % PUZZLES.length;   // pads never repeat each other
-  st.idx = i; st.phase = 'play'; st.t0 = st.tin = now; st.emptyRun = 0; st.slots = []; st.auto = now + 2 + Math.random() * 5;
+  st.idx = i; st.phase = 'play'; st.t0 = st.tin = now; st.emptyRun = 0; st.fullRun = 0; st.nagged = false; st.slots = []; st.auto = now + 2 + Math.random() * 5;
   if (S.mode === 'camera' && !S.scene) setTimeout(() => relearnPad(st), 0);
   buildSlots(st);
 }
@@ -642,12 +646,17 @@ function drawFish(c, t) {
 
 /* ---------- puzzle pads ---------- */
 function drawStation(st, t) {
+  if (S.mode === 'camera' && st.phase === 'clear' && !S.scene && t - st.t0 > 2.4) {   // "take the blocks away" ring, well outside the pieces
+    const R = (st.rad || S.u * 3) + S.u * 1.6;
+    ctx.save(); ctx.setLineDash([S.u * .5, S.u * .4]); ctx.lineDashOffset = -t * S.u * 1.5; ctx.lineWidth = S.u * .18;
+    ctx.strokeStyle = `rgba(255,255,255,${.55 + .35 * Math.sin(t * 4)})`; ctx.beginPath(); ctx.arc(st.cx, st.cy, R, 0, TAU); ctx.stroke(); ctx.restore();
+  }
   const pz = PUZZLES[st.idx], g = cfg.light, a = Math.min(1, (t - st.tin) / .35), k = .55 + .45 * (1 + 2.7 * Math.pow(a - 1, 3) + 1.7 * Math.pow(a - 1, 2));
   ctx.save(); ctx.translate(st.cx, st.cy); ctx.rotate(st.rot); ctx.scale(S.u * k, S.u * k); ctx.translate(-pz.ox, -pz.oy);
   ctx.lineJoin = 'round'; ctx.lineCap = 'round';
   ctx.lineWidth = 1.75; ctx.strokeStyle = 'rgba(20,50,70,.16)'; for (const p of pz.pieces) { path(p.pts); ctx.stroke(); }
   ctx.lineWidth = 1.45; ctx.strokeStyle = ctx.fillStyle = '#2b2a35'; for (const p of pz.pieces) { path(p.pts); ctx.stroke(); ctx.fill(); }
-  const dim = st.phase === 'clear';
+  const dim = st.phase === 'clear' && S.mode !== 'camera';
   ctx.lineWidth = .17; ctx.strokeStyle = dim ? 'rgba(255,255,255,.4)' : '#fff'; for (const p of pz.pieces) { path(p.pts); ctx.stroke(); }
   ctx.fillStyle = `rgb(${g},${g},${g})`; for (const p of pz.pieces) { path(p.pts); ctx.fill(); }
   ctx.lineWidth = .035; ctx.strokeStyle = dim ? 'rgba(255,255,255,.2)' : 'rgba(255,255,255,.5)'; for (const p of pz.pieces) { path(p.pts); ctx.stroke(); }
@@ -656,7 +665,6 @@ function drawStation(st, t) {
     const sl = st.slots[i]; if (!sl) return;
     if (sl.filled) { facet(p.pts, BLOCK[p.type], .8); return; }
     const c = Math.min(1, (sl.cover || 0) / (cfg.need / 100));
-    if (S.mode === 'camera' && st.phase === 'play' && c > .15) { path(p.pts); ctx.lineWidth = .26; ctx.strokeStyle = `rgba(255,236,140,${.25 + .6 * c})`; ctx.stroke(); }
   });
   ctx.restore();
 }
