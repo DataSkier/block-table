@@ -67,6 +67,10 @@ button:hover{filter:brightness(1.12)}
 button:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid var(--blue);outline-offset:2px}
 .home{color:var(--ink-soft);font-weight:700;text-decoration:none;align-self:flex-start;padding:6px 0}
 .home:hover,.home:focus-visible{color:var(--ink);text-decoration:underline}
+.teach{display:flex;flex-direction:column;gap:10px}
+.teach p{margin:0;color:var(--ink-soft);max-width:40ch}
+.teach .small{font-size:13px}
+.teach .small:empty{display:none}
 #status{margin:0;min-height:1.5em;color:var(--sun)}
 #status:empty{display:none}
 details{background:var(--well);border-radius:14px;padding:4px 14px}
@@ -118,6 +122,16 @@ summary{cursor:pointer;font-weight:700;padding:10px 0}
     <canvas id="aimView" width="480" height="270"></canvas>
     <figcaption>This is what the camera sees. The whole projected picture should fit inside it. After a line-up, the yellow box should sit on the stage, red dots show where the camera sees a shadow or a hand, and each animal's match is listed underneath.</figcaption>
   </figure>
+
+  <section class="teach" aria-labelledby="teachTitle">
+    <h2 id="teachTitle">Teach your shadows</h2>
+    <p>Show the game each animal and it learns what your own shadows look like. It talks you through all six, twice each: hold each one still until it chimes.</p>
+    <div class="actions">
+      <button id="teachBtn" type="button">Teach the animals</button>
+      <button id="forgetBtn" type="button" hidden>Forget them</button>
+    </div>
+    <p id="taughtNote" class="small"></p>
+  </section>
 
   <details id="adjust">
     <summary>Adjust</summary>
@@ -565,8 +579,181 @@ function match(mask, only) {
   });
 }
 
+/* ---------- learning your own shadows ----------
+   Real hands never quite match drawn shapes, so the game can learn yours: make each animal once and it keeps
+   what the camera saw. A shadow is reduced to its hand end: the arm is turned to come in from the bottom,
+   the shape is cut off just below the wrist (where the shadow stops being as narrow as the arm), and scaled
+   into a small square picture. Two such pictures are compared loosely: how much of each lies on or right
+   next to the other, either hand, nudged a cell each way. */
+const TN = 24, TAUGHT = 'shadowPuppetsTaught';
+S.taught = {};
+try {
+  const raw = JSON.parse(localStorage.getItem(TAUGHT) || '{}');
+  for (const id in raw) S.taught[id] = (raw[id] || []).filter(t => typeof t === 'string' && t.length === TN * TN).map(t => Uint8Array.from(t, c => c === '1' ? 1 : 0));
+} catch (e) {}
+const saveTaught = () => { try { const o = {}; for (const id in S.taught) o[id] = S.taught[id].map(a => Array.from(a).join('')); localStorage.setItem(TAUGHT, JSON.stringify(o)); } catch (e) {} };
+const taughtCount = () => PUPPETS.filter(p => (S.taught[p.id] || []).length).length;
+function shapeOf(mask) {
+  const GW = S.GW, GH = S.GH, lab = new Int32Array(GW * GH).fill(-1);
+  let best = null;                                       // the biggest connected patch of shadow
+  for (let s0 = 0; s0 < GW * GH; s0++) {
+    if (!mask[s0] || lab[s0] >= 0) continue;
+    const q = [s0]; lab[s0] = s0;
+    for (let h = 0; h < q.length; h++) {
+      const c = q[h], x = c % GW, y = (c / GW) | 0;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const X = x + dx, Y = y + dy, n = Y * GW + X;
+        if (X >= 0 && Y >= 0 && X < GW && Y < GH && mask[n] && lab[n] < 0) { lab[n] = s0; q.push(n); }
+      }
+    }
+    if (!best || q.length > best.length) best = q;
+  }
+  if (!best || best.length < 12) return null;
+  const edge = [0, 0, 0, 0];                             // where it runs off the stage: bottom, top, left, right
+  for (const c of best) { const x = c % GW, y = (c / GW) | 0; if (y >= GH - 2) edge[0]++; if (y < 2) edge[1]++; if (x < 2) edge[2]++; if (x >= GW - 2) edge[3]++; }
+  const arm = edge.indexOf(Math.max(...edge)), touches = edge[arm] > 0;
+  const side = arm >= 2, UW = side ? GH : GW, UH = side ? GW : GH;
+  const turn = [(x, y) => [x, y], (x, y) => [GW - 1 - x, GH - 1 - y], (x, y) => [y, GW - 1 - x], (x, y) => [GH - 1 - y, x]][touches ? arm : 0];
+  const R = new Uint8Array(UW * UH);
+  for (const c of best) { const [u, v] = turn(c % GW, (c / GW) | 0); R[v * UW + u] = 1; }
+  const width = new Array(UH).fill(0), runs = new Array(UH).fill(0);
+  let vmin = UH, vmax = -1;
+  for (let v = 0; v < UH; v++) {
+    let prev = 0;
+    for (let u = 0; u < UW; u++) { const o = R[v * UW + u]; width[v] += o; if (o && !prev) runs[v]++; prev = o; }
+    if (width[v]) { vmin = Math.min(vmin, v); vmax = v; }
+  }
+  /* the wrist: walking in from the arm's edge, the first row clearly wider than the arm, or split into more pieces */
+  const armRows = []; for (let v = vmax; v >= Math.max(vmin, vmax - 3); v--) armRows.push(width[v]);
+  armRows.sort((a, b) => a - b);
+  const A = Math.max(1, armRows[armRows.length >> 1]), armRuns = runs[vmax] || 1;
+  let wrist = -1;
+  if (touches) for (let v = vmax - 1; v >= vmin; v--) if (width[v] > A * 1.45 + 1 || runs[v] > armRuns) { wrist = v; break; }
+  if (wrist < 0) wrist = Math.min(vmax, vmin + Math.round(A * 2.5));
+  const v0 = vmin, v1 = Math.min(vmax, wrist + Math.round(A * .5));
+  let u0 = UW, u1 = -1;
+  for (let v = v0; v <= v1; v++) for (let u = 0; u < UW; u++) if (R[v * UW + u]) { u0 = Math.min(u0, u); u1 = Math.max(u1, u); }
+  const wU = u1 - u0 + 1, wV = v1 - v0 + 1;
+  if (wU < 2 || wV < 2) return null;
+  const sc = TN / Math.max(wU, wV), padU = (TN - wU * sc) / 2, out = new Uint8Array(TN * TN);
+  for (let j = 0; j < TN; j++) for (let i = 0; i < TN; i++) {
+    const u = Math.floor(u0 + (i + .5 - padU) / sc), v = Math.floor(v0 + (j + .5) / sc);
+    if (u >= u0 && u <= u1 && v >= v0 && v <= v1) out[j * TN + i] = R[v * UW + u];
+  }
+  return out;
+}
+function outline(m) {
+  const o = new Uint8Array(TN * TN);
+  for (let y = 0; y < TN; y++) for (let x = 0; x < TN; x++) {
+    if (!m[y * TN + x]) continue;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const X = x + dx, Y = y + dy; if (X < 0 || Y < 0 || X >= TN || Y >= TN || !m[Y * TN + X]) { o[y * TN + x] = 1; break; } }
+  }
+  return o;
+}
+/* 0..1: how closely two shapes agree, over the best small nudge and either hand. It blends how much they overlap
+   with how well their outlines line up (each within a cell of the other), since outlines are where animals differ. */
+function likeness(a, b) {
+  const ea = outline(a), eb = outline(b), nea = grow(ea, TN, TN, 1), neb = grow(eb, TN, TN, 1);
+  let best = 0;
+  for (const m of [0, 1]) for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+    let I = 0, U = 0, pa = 0, na = 0, pb = 0, nb = 0;
+    for (let y = 0; y < TN; y++) for (let x = 0; x < TN; x++) {
+      const X = (m ? TN - 1 - x : x) + dx, Y = y + dy, ai = y * TN + x, inB = X >= 0 && Y >= 0 && X < TN && Y < TN, bi = Y * TN + X;
+      const av = a[ai], bv = inB ? b[bi] : 0;
+      if (av || bv) U++; if (av && bv) I++;
+      if (ea[ai]) { na++; if (inB && neb[bi]) pa++; }
+      if (inB && eb[bi]) { nb++; if (nea[ai]) pb++; }
+    }
+    const iou = U ? I / U : 0, ra = na ? pa / na : 0, rb = nb ? pb / nb : 0, f = ra + rb ? 2 * ra * rb / (ra + rb) : 0;
+    best = Math.max(best, Math.sqrt(iou * f));
+  }
+  return best;
+}
+/* Plain hands (a fist, a flat hand, an open hand) that every animal has to beat, so waving doesn't count. */
+function plainHands() {
+  if (S.plain && S.plain.GH === S.GH) return S.plain.list;
+  const GW = S.GW, GH = S.GH, c = document.createElement('canvas'); c.width = GW; c.height = GH;
+  const g = c.getContext('2d', {willReadFrequently: true}), keep = ctx, keepMask = S.mask;
+  const hands = [[{e: [0, .62, .3, .3]}, {c: [0, .8, 0, 9, .34]}], [{e: [0, .45, .2, .45]}, {c: [0, .8, 0, 9, .32]}],
+    [{e: [0, .72, .3, .26]}, ...[-.3, -.15, 0, .15, .3].map(x => ({c: [x * .6, .6, x * 1.25, .05, .1]})), {c: [0, .85, 0, 9, .34]}]];
+  const list = hands.map(h => {
+    g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, GW, GH);
+    g.translate(GW / 2, GH / 2); g.scale(GH * .55, GH * .55); g.translate(0, -.5); g.fillStyle = '#fff'; ctx = g; drawShape(h); ctx = keep;
+    const d = g.getImageData(0, 0, GW, GH).data, raw = new Uint8Array(GW * GH);
+    for (let i = 0; i < GW * GH; i++) raw[i] = d[i * 4 + 3] > 110 ? 1 : 0;
+    S.mask = new Uint8Array(GW * GH); tidy(raw); return shapeOf(S.mask);
+  }).filter(Boolean);
+  S.mask = keepMask || new Uint8Array(GW * GH);
+  S.plain = {GH, list};
+  return list;
+}
+/* A taught animal's score reaches "Match needed" only when the shadow matches it at least that well
+   and also beats every other taught animal and the plain hands by a little. */
+function taughtScores(shape) {
+  const need = cfg.need / 100, L = {};
+  for (const pz of PUPPETS) { L[pz.id] = 0; for (const t of S.taught[pz.id] || []) L[pz.id] = Math.max(L[pz.id], likeness(shape, t)); }
+  const plain = Math.max(0, ...plainHands().map(h => likeness(shape, h)));
+  return PUPPETS.map(pz => {
+    if (!(S.taught[pz.id] || []).length) return null;
+    const rival = Math.max(plain, ...PUPPETS.filter(q => q !== pz && (S.taught[q.id] || []).length).map(q => L[q.id]));
+    const bar = Math.max(need, rival + .04);
+    return Math.min(1, need * L[pz.id] / bar);
+  });
+}
+const taughtScore = (pz, shape) => taughtScores(shape)[PUPPETS.indexOf(pz)] || 0;
+/* Animals you've taught are scored against your own shadows; the rest use the drawn shapes. */
+function scoreAll(mask) {
+  const taught = PUPPETS.map(p => (S.taught[p.id] || []).length > 0);
+  const shape = taught.some(Boolean) ? shapeOf(mask) : null;
+  const built = taught.every(Boolean) ? null : match(mask), ts = shape ? taughtScores(shape) : [];
+  return PUPPETS.map((p, i) => taught[i] ? {score: ts[i] || 0, taught: true} : built[i]);
+}
+
+/* ---------- teaching: hands-free, it talks you through each animal ---------- */
+function startTeach(only) {
+  S.phase = 'teach'; S.streak = 0;
+  S.teach = {list: only != null ? [only] : PUPPETS.map((_, i) => i), at: 0, step: 'clear', clear: 0, run: 0, last: null, t0: now};
+  speak(only != null ? "Let's teach the " + PUPPETS[only].name + '. Hands out of the light first.' : "Let's teach me your animals. Hands out of the light first.");
+}
+function teachStep() {
+  const T = S.teach, i = T.list[T.at], pz = PUPPETS[i], filled = readMask();
+  if (T.step === 'clear') {
+    T.clear = filled < .03 ? T.clear + 1 : 0;
+    if (T.clear >= 3) { T.step = 'show'; T.t0 = now; T.run = 0; T.last = null; if (!T.again) speak('Show me your ' + pz.name + ', and hold it still.'); }
+    return;
+  }
+  if (now - T.t0 > 25) {
+    if (T.first) { S.taught[pz.id] = [T.first]; saveTaught(); }       // one good take is better than none
+    else speak("Let's skip the " + pz.name + ' for now.');
+    T.first = null; T.again = false; return nextTeach();
+  }
+  const sh = filled > .015 && filled < .6 ? shapeOf(S.mask) : null;
+  if (!sh) { T.run = 0; T.last = null; return; }
+  T.run = T.last && likeness(sh, T.last) > .7 ? T.run + 1 : 0;   // held still: the shape barely changes between readings
+  T.last = sh;
+  if (T.run >= 6 && now - T.t0 > 1.5) {
+    [784, 1047].forEach((f, k) => tone(f, .1 * k, .25));
+    sparkle(S.cards[i].x + S.cards[i].w / 2, S.cards[i].y + S.cards[i].h / 2, 18, S.stage.h, ['#fff', '#3ddc6b', '#ffd23f']);
+    if (!T.first) {                                // two takes per animal: the second a little different
+      T.first = sh; T.step = 'clear'; T.clear = 0; T.again = true;
+      speak('Got it. Now once more, a little different.');
+      return;
+    }
+    S.taught[pz.id] = [T.first, sh]; T.first = null; T.again = false;
+    saveTaught();
+    speak('Got it!');
+    nextTeach();
+  }
+}
+function nextTeach() {
+  const T = S.teach; T.at++;
+  if (T.at >= T.list.length) { S.teach = null; speak("All done. Let's play!", 900); setTimeout(toPlay, 2600); S.phase = 'clear'; S.t0 = now; S.clearRun = -100; return; }
+  T.step = 'clear'; T.clear = 0;
+}
+
 function sense() {
   if (S.mode !== 'camera' || S.scene || !sheet.hidden || !S.base || S.busy || !S.cells.length) return;
+  if (S.phase === 'teach' && S.teach) { teachStep(); return; }
   if (S.calKey && orientKey() !== S.calKey) { begin(true); return; }   // the screen or camera turned: line up again
   if (S.phase === 'win' || S.phase === 'film') return;
   const filled = readMask();
@@ -581,7 +768,7 @@ function sense() {
   /* Most of the stage changing at once is the room light or the camera moving, not hands. Photograph it again if it lasts. */
   if (filled > .6) { if ((S.shaky = (S.shaky || 0) + 1) > 14) { S.shaky = 0; rebase(); } return; }
   S.shaky = 0;
-  S.scores = filled < .015 ? PUPPETS.map(() => ({score: 0})) : match(S.mask);
+  S.scores = filled < .015 ? PUPPETS.map(() => ({score: 0})) : scoreAll(S.mask);
   /* Asked for one animal: it has to match well and about as well as anything else.
      Any animal: the best one has to match well and clearly beat the runner-up. */
   const need = cfg.need / 100, sc = S.scores.map(m => m.score);
@@ -653,7 +840,7 @@ function speak(text, delay) {
 function toPlay() {
   S.phase = 'play'; S.streak = 0; S.lead = -1; S.clearRun = 0; S.nagged = false; S.t0 = now;
   S.scores = PUPPETS.map(() => ({score: 0}));
-  if (cfg.oneAtATime && S.mode !== 'attract') speak('Can you make a ' + PUPPETS[S.target].name + '?', 300);
+  if (cfg.oneAtATime && S.mode !== 'attract' && !S.teachNext) speak('Can you make a ' + PUPPETS[S.target].name + '?', 300);
 }
 function sparkle(x, y, n, speed, cols) {
   for (let i = 0; i < n; i++) {
@@ -756,9 +943,15 @@ function buildTheatre() {
 /* Live bits drawn over the theatre, all off the stage: how close each card is, and the one being asked for. */
 function drawCards(t) {
   const need = cfg.need / 100, live = S.mode !== 'attract';
+  const teachI = S.phase === 'teach' && S.teach ? S.teach.list[S.teach.at] : -1;
   S.cards.forEach((cd, i) => {
-    const want = cfg.oneAtATime && live && S.target === i;
-    if (cfg.oneAtATime && live && !want) { rrect(cd.x, cd.y, cd.w, cd.h, cd.h * .12); ctx.fillStyle = 'rgba(18,7,10,.62)'; ctx.fill(); }
+    const want = teachI >= 0 ? teachI === i : cfg.oneAtATime && live && S.target === i;
+    if ((S.taught[PUPPETS[i].id] || []).length) {               // a little green tick: this one has been taught
+      dot(cd.x + cd.w - cd.h * .13, cd.y + cd.h * .13, cd.h * .09, '#3ddc6b');
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = cd.h * .025; ctx.lineCap = 'round'; ctx.beginPath();
+      ctx.moveTo(cd.x + cd.w - cd.h * .17, cd.y + cd.h * .13); ctx.lineTo(cd.x + cd.w - cd.h * .14, cd.y + cd.h * .16); ctx.lineTo(cd.x + cd.w - cd.h * .09, cd.y + cd.h * .1); ctx.stroke();
+    }
+    if ((teachI >= 0 || (cfg.oneAtATime && live)) && !want) { rrect(cd.x, cd.y, cd.w, cd.h, cd.h * .12); ctx.fillStyle = 'rgba(18,7,10,.62)'; ctx.fill(); }
     if (want || (S.phase === 'win' && S.won === i)) {
       ctx.save(); ctx.lineWidth = cd.h * .05; ctx.strokeStyle = `rgba(255,210,63,${.65 + .35 * Math.sin(t * 5)})`;
       rrect(cd.x - cd.h * .04, cd.y - cd.h * .04, cd.w + cd.h * .08, cd.h * 1.08, cd.h * .15); ctx.stroke(); ctx.restore();
@@ -1093,10 +1286,13 @@ function frame(ms) {
         drawParts(dt);
         if (S.mode === 'demo' && S.fake != null && S.phase === 'play' && now - S.fakeT > 1.1) { const i = S.fake; S.fake = null; win(i); }
         if (S.mode === 'demo' && S.phase === 'win' && now - S.t0 > 1.5) S.fake = null;
-        if (S.mode === 'camera' && S.phase === 'clear' && now - S.t0 > 1) {
+        let words = '';
+        if (S.mode === 'camera' && S.phase === 'clear' && now - S.t0 > 1 && S.clearRun >= 0) words = 'Hands out of the light for the next one';
+        if (S.phase === 'teach' && S.teach) words = S.teach.step === 'clear' ? 'Hands out of the light' : (S.teach.again ? 'Once more: your ' : 'Show me your ') + PUPPETS[S.teach.list[S.teach.at]].name + ' and hold still';
+        if (words) {
           ctx.fillStyle = 'rgba(255,242,214,.85)'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
           ctx.font = `800 ${Math.round(S.free.h * .045)}px 'Baloo 2', sans-serif`;
-          ctx.fillText('Hands out of the light for the next one', S.stage.x + S.stage.w / 2, S.stage.y - S.free.h * .015);
+          ctx.fillText(words, S.stage.x + S.stage.w / 2, S.stage.y - S.free.h * .015);
         }
       }
     }
@@ -1107,7 +1303,7 @@ function frame(ms) {
 
 /* ---------- controls ---------- */
 function showSheet(open) {
-  sheet.hidden = !open; $('gear').hidden = open;
+  sheet.hidden = !open; $('gear').hidden = open; refreshTaught();
   const live = S.mode !== 'attract';
   $('resume').hidden = !live; $('howto').hidden = live;
   $('go').textContent = S.mode === 'camera' ? 'Line up camera again' : 'Start with camera';
@@ -1167,7 +1363,7 @@ function drawAim() {
     readMask();                                               // a live reading, even with the sheet open
     aimCtx.fillStyle = '#ff4b4b';
     S.cells.forEach((k, i) => { if (k >= 0 && S.mask[i]) { const p = k / 4; aimCtx.fillRect((p % S.pw) / S.pw * w - 1.5, Math.floor(p / S.pw) / S.ph * vh - 1.5, 3, 3); } });
-    if (now - (S.aimT || 0) > .5) { S.aimT = now; S.aimScores = match(S.mask); }
+    if (now - (S.aimT || 0) > .5) { S.aimT = now; S.aimScores = scoreAll(S.mask); }
     aimCtx.font = '700 13px Nunito, sans-serif'; aimCtx.textBaseline = 'top'; aimCtx.textAlign = 'left';
     PUPPETS.forEach((pz, i) => {
       const sc = Math.round(((S.aimScores || [])[i] || {score: 0}).score * 100), x = 8 + (i % 3) * 158, y = vh + 8 + Math.floor(i / 3) * 24;
@@ -1187,6 +1383,21 @@ addEventListener('keydown', e => {
 });
 $('demo').onclick = () => { initAudio(); S.mode = 'demo'; S.Hm = null; note(''); showSheet(false); toPlay(); };
 $('resume').onclick = backToPlay;
+function refreshTaught() {
+  const n = taughtCount();
+  $('forgetBtn').hidden = !n;
+  $('teachBtn').textContent = n ? 'Teach them again' : 'Teach the animals';
+  $('taughtNote').textContent = n ? `${n} of ${PUPPETS.length} animals use your own shadows.` : '';
+}
+$('teachBtn').onclick = async () => {
+  S.teachNext = true;
+  try {
+    if (S.mode !== 'camera' || !S.Hm) { if (!(await begin(false))) return; }
+    else await backToPlay();
+  } finally { S.teachNext = false; }
+  startTeach();
+};
+$('forgetBtn').onclick = () => { S.taught = {}; saveTaught(); refreshTaught(); note('The game is back to its built-in shapes.'); };
 $('gear').onclick = () => showSheet(true);
 
 /* Tap-to-play: tap a card (or the stage) and its shadow appears, then the film. Tapping during a film skips it. */
@@ -1212,7 +1423,7 @@ for (const k of ['sound', 'front', 'oneAtATime']) {
   inp.onchange = () => { cfg[k] = inp.checked; save(); if (k === 'oneAtATime') toPlay(); };
 }
 addEventListener('resize', layout);
-window.shadowPuppets = {S, PUPPETS, SCENES, match, tidy, drawShape, startCine, layout};   // handy for poking at state from the console
+window.shadowPuppets = {S, PUPPETS, SCENES, match, tidy, drawShape, startCine, layout, shapeOf, likeness, taughtScore, taughtScores, scoreAll, plainHands};   // handy for poking at state from the console
 layout();
 if (document.fonts && document.fonts.ready) document.fonts.ready.then(buildTheatre);   // repaint the card names once the font arrives
 probeFilms();

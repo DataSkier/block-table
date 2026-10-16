@@ -30,6 +30,7 @@ Hands held in the projector beam throw a shadow on the bright stage; the camera 
 - *Check camera aim* shows red dots where the camera sees shadow, plus each animal's live match score. Use it with the *Match needed* and *Sensitivity* sliders to tune for your room.
 - The films are drawn live on the canvas. To use real clips instead, drop an mp4 named after the animal into `games/shadow-puppets/videos/` (`rabbit.mp4`, `dog.mp4`, `bird.mp4`, `swan.mp4`, `deer.mp4`, `crocodile.mp4`). Any clip that's there plays in place of the drawn film; the rest keep their drawn film.
 - The camera line-up from Block Table is reused if Shadow Puppets hasn't saved its own yet.
+- *Teach the animals* (in settings) learns your own shadows: it talks you through all six, two takes each, capturing each when it's held still. Taught animals are matched against your takes instead of the drawn shapes, and must also beat every other taught animal and plain hands (fist, flat hand, open hand), so waving doesn't count. Takes are kept in the browser on that phone; *Forget them* goes back to the drawn shapes.
 
 ## Block Table: staying lined up
 
