@@ -390,7 +390,7 @@ async function calibrate() {
   const mid = brightSpot(grab(), dark), want = project(hm, .5, .5);
   if (!mid || Math.hypot((mid[0] - want[0]) * S.pw, (mid[1] - want[1]) * S.ph) > S.pw * .04)
     throw new Error('The line-up did not check out: the centre dot was not where the corners said it would be. Keep the phone completely still and hands out of view, then try again.');
-  S.Hm = hm;
+  S.Hm = hm; S.T = null; S.lost = false;
   await rebase(); lockCamera();
 }
 
@@ -414,19 +414,21 @@ function diffD(r, g, b, br, bg, bb) {
 async function learn(x0, y0, x1, y1) {
   const n = 7, frames = [];
   for (let i = 0; i < n; i++) { frames.push(grab()); await sleep(60); }
-  const W = S.pw, len = W * S.ph * 4;
+  const W = S.pw, len = W * S.ph * 4, T = curT();
+  const atk = k => { const q = at(T, (k >> 2) % W, ((k >> 2) / W) | 0); return q < 0 ? k : q; };
   if (!S.base || S.base.length !== len) { S.base = new Float32Array(len); S.noise = new Float32Array(len / 4); x0 = 0; y0 = 0; x1 = W - 1; y1 = S.ph - 1; }
   for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
-    const k = (y * W + x) * 4;
-    for (let c = 0; c < 3; c++) { let m = 0; for (const f of frames) m += f[k + c]; S.base[k + c] = m / n; }
+    const k = (y * W + x) * 4, q = atk(k);
+    for (let c = 0; c < 3; c++) { let m = 0; for (const f of frames) m += f[q + c]; S.base[k + c] = m / n; }
   }
   for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
     const k = (y * W + x) * 4; let v = 0;
     px(S.base, k, Q);
-    for (const f of frames) { px(f, k, P); const d = diffD(P[0], P[1], P[2], Q[0], Q[1], Q[2]); v += d * d; }
+    for (const f of frames) { px(f, atk(k), P); const d = diffD(P[0], P[1], P[2], Q[0], Q[1], Q[2]); v += d * d; }
     S.noise[k / 4] = Math.sqrt(v / n);
   }
   S.baseBal = balance(S.base);
+  pickFeatures(frames[n - 1]);
 }
 /* When a puzzle changes, re-learn just that patch of table once the new outlines are showing. */
 async function relearnPad(st) {
@@ -446,6 +448,117 @@ async function relearnPad(st) {
   st.slots.forEach(sl => { sl.cover = 0; sl.score = 0; });
   st.learning = false;
 }
+/* ---------- keeping the line-up when the phone gets nudged ----------
+   The camera knows what the empty table looks like, so crisp edges (pad borders, outlines, coral)
+   in a dozen patches across the table are tracked several times a second. How the patches moved
+   gives the slide, twist and tilt of the whole picture, and every check point follows it.
+   While the picture is still moving, detection waits. */
+const lumaAt = (a, k) => .3 * a[k] + .59 * a[k + 1] + .11 * a[k + 2];
+function lumaS(a, k) {
+  const row = S.pw * 8, n = a.length - 4; let t = 0, c = 0;
+  for (const o of [0, 8, -8, row, -row]) { const q = k + o; if (q < 0 || q >= n) continue; t += lumaAt(a, q); c++; }
+  return t / c;
+}
+const ID = [1, 0, 0, 0, 1, 0];
+const Tx = (T, x, y) => T[0] * x + T[1] * y + T[2], Ty = (T, x, y) => T[3] * x + T[4] * y + T[5];
+const curT = () => S.T || ID;
+function at(T, x, y) {                            // where a line-up pixel is in this frame (-1: off the picture)
+  const u = Math.round(Tx(T, x, y)), v = Math.round(Ty(T, x, y));
+  return (u < 0 || v < 0 || u >= S.pw || v >= S.ph) ? -1 : (v * S.pw + u) * 4;
+}
+function pickFeatures(lastFrame) {
+  const W = S.pw, H = S.ph, B = S.base, cell = 12, best = new Map();
+  const polys = S.Hm ? S.st.flatMap(st => st.slots.map(sl => {   // keep away from the inside of pieces, where blocks go
+    const c = sl.pts.map(([x, y]) => project(S.Hm, x / S.W, y / S.H)).map(([u, v]) => [u * W, v * H]);
+    const mx = c.reduce((a, q) => a + q[0], 0) / c.length, my = c.reduce((a, q) => a + q[1], 0) / c.length;
+    return c.map(([x, y]) => [mx + (x - mx) * 1.25, my + (y - my) * 1.25]);
+  })) : [];
+  for (let y = 8; y < H - 8; y += 2) for (let x = 8; x < W - 8; x += 2) {
+    const k = (y * W + x) * 4;
+    const g = Math.abs(lumaS(B, k + 20) - lumaS(B, k - 20)) + Math.abs(lumaS(B, k + W * 20) - lumaS(B, k - W * 20));
+    if (g < 30) continue;
+    const id = ((y / cell) | 0) * 1000 + ((x / cell) | 0), cur = best.get(id);
+    if (!cur || g > cur.g) best.set(id, {x, y, k, g});
+  }
+  const list = [...best.values()].filter(f => !polys.some(pl => inside(pl, f.x, f.y)));
+  for (const f of list) f.L = lumaS(B, f.k);
+  const cols = 4, rows = 3, regions = [];
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+    let F = list.filter(f => f.x >= c * W / cols && f.x < (c + 1) * W / cols && f.y >= r * H / rows && f.y < (r + 1) * H / rows);
+    if (F.length < 15) continue;
+    F.sort((a, b) => b.g - a.g); F = F.slice(0, 70);
+    regions.push({F, cx: F.reduce((a, f) => a + f.x, 0) / F.length, cy: F.reduce((a, f) => a + f.y, 0) / F.length, q0: 4});
+  }
+  S.regions = regions;
+  if (lastFrame) {                                // how well things match when nothing has moved
+    const T = curT();
+    for (const rg of regions) { place(rg.F, T); rg.q0 = Math.max(2, regionCost(rg.F, lastFrame, 0, 0)); }
+    S.q0 = Math.max(2, medianDiff(lastFrame, T));
+  }
+}
+function place(F, T) { for (const f of F) { f.u0 = Math.round(Tx(T, f.x, f.y)); f.v0 = Math.round(Ty(T, f.x, f.y)); } }
+function regionCost(F, d, tx, ty) {
+  const W = S.pw, H = S.ph; let mc = 0, mb = 0, n = 0;
+  for (const f of F) { const u = f.u0 + tx, v = f.v0 + ty; if (u < 2 || v < 2 || u >= W - 2 || v >= H - 2) continue; mc += lumaS(d, (v * W + u) * 4); mb += f.L; n++; }
+  if (n < 8) return 1e9;
+  const sh = (mc - mb) / n; let c = 0;
+  for (const f of F) { const u = f.u0 + tx, v = f.v0 + ty; if (u < 2 || v < 2 || u >= W - 2 || v >= H - 2) continue; c += Math.min(40, Math.abs(lumaS(d, (v * W + u) * 4) - sh - f.L)); }
+  return c / n;
+}
+const MD = new Float32Array(1200);
+function medianDiff(d, T) {                       // the middle difference ignores arms and hands over part of the table
+  let mc = 0, mb = 0, n = 0;
+  for (const rg of S.regions) for (const f of rg.F) { const q = at(T, f.x, f.y); if (q < 0) continue; mc += lumaS(d, q); mb += f.L; n++; }
+  if (!n) return 1e9;
+  const sh = (mc - mb) / n; let m = 0;
+  for (const rg of S.regions) for (const f of rg.F) { const q = at(T, f.x, f.y); if (q < 0 || m >= MD.length) continue; MD[m++] = Math.abs(lumaS(d, q) - sh - f.L); }
+  return MD.subarray(0, m).sort()[m >> 1];
+}
+function fitAffine(obs) {                         // weighted least squares: [x y 1] -> x', y'
+  const A = [[0, 0, 0], [0, 0, 0], [0, 0, 0]], bx = [0, 0, 0], by = [0, 0, 0];
+  for (const [x, y, u, v, w] of obs) {
+    const r = [x, y, 1];
+    for (let i = 0; i < 3; i++) { for (let j = 0; j < 3; j++) A[i][j] += w * r[i] * r[j]; bx[i] += w * r[i] * u; by[i] += w * r[i] * v; }
+  }
+  const solve = b => {
+    const M = A.map((row, i) => [...row, b[i]]);
+    for (let c = 0; c < 3; c++) {
+      let p = c; for (let r = c + 1; r < 3; r++) if (Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r;
+      if (Math.abs(M[p][c]) < 1e-9) return null;
+      [M[c], M[p]] = [M[p], M[c]];
+      for (let r = 0; r < 3; r++) if (r !== c) { const f = M[r][c] / M[c][c]; for (let k = c; k < 4; k++) M[r][k] -= f * M[c][k]; }
+    }
+    return M.map((row, i) => row[3] / row[i]);
+  };
+  const X = solve(bx), Y = solve(by);
+  return X && Y ? [X[0], X[1], X[2], Y[0], Y[1], Y[2]] : null;
+}
+function track(d) {
+  const RG = S.regions;
+  if (!RG || RG.length < 3) return 'ok';
+  const T = curT(), R = S.lost ? 12 : 4;
+  let obs = [];
+  for (const rg of RG) {
+    place(rg.F, T);
+    let bc = 1e9, bx = 0, by = 0;
+    for (let ty = -R; ty <= R; ty++) for (let tx = -R; tx <= R; tx++) { const c = regionCost(rg.F, d, tx, ty); if (c < bc) { bc = c; bx = tx; by = ty; } }
+    if (bc < Math.max(rg.q0 * 2.5, rg.q0 + 8)) obs.push([rg.cx, rg.cy, Tx(T, rg.cx, rg.cy) + bx, Ty(T, rg.cx, rg.cy) + by, rg.F.length]);
+  }
+  let N = obs.length >= 3 ? fitAffine(obs) : null;
+  for (let pass = 0; N && pass < 3 && obs.length > 4; pass++) {   // drop a patch that disagrees with the rest (a hand over it)
+    const res = obs.map(o => Math.hypot(Tx(N, o[0], o[1]) - o[2], Ty(N, o[0], o[1]) - o[3]));
+    const worst = res.indexOf(Math.max(...res));
+    if (res[worst] < 1.6) break;
+    obs.splice(worst, 1); N = fitAffine(obs);
+  }
+  if (!N || medianDiff(d, N) > Math.max(S.q0 * 3, S.q0 + 9)) { S.lost = true; return 'lost'; }
+  S.lost = false;
+  const W = S.pw, H = S.ph;
+  const move = Math.max(...[[0, 0], [W, 0], [0, H], [W, H], [W / 2, H / 2]].map(([x, y]) => Math.hypot(Tx(N, x, y) - Tx(T, x, y), Ty(N, x, y) - Ty(T, x, y))));
+  if (move > .75) { S.T = N; S.settle = 3; }      // small wobbles of the estimate are ignored
+  if (S.settle > 0) { S.settle--; return 'moving'; }
+  return 'ok';
+}
 /* The camera's overall colour balance, from a sparse grid over the whole picture. */
 function balance(arr) {
   let r = 0, g = 0, b = 0;
@@ -456,17 +569,27 @@ function sense() {
   if (S.mode !== 'camera' || S.scene || !sheet.hidden || !S.base || S.busy) return;
   if (S.calKey && orientKey() !== S.calKey) { begin(true); return; }   // the screen or camera turned: line up again
   const d = grab(), need = cfg.need / 100, now_ = balance(d), gain = S.baseBal.map((v, i) => v / now_[i]);
+  S.tick = (S.tick || 0) + 1;
+  const tr = (S.tick % 2 === 0 || S.lost || S.settle > 0) ? track(d) : 'ok';   // check the line-up three times a second while steady
+  if (tr !== 'ok') {                              // the phone is moving, or can't find its place: wait
+    if (tr === 'lost' && (S.lostRun = (S.lostRun || 0) + 1) > 30) { S.lostRun = 0; begin(true); }
+    return;
+  }
+  S.lostRun = 0;
+  const T = curT();
   let slots = 0, jumped = 0;
   const covers = [];
   const sens = cfg.sens / 100;
   for (const st of S.st) if (!st.learning) for (const s of st.slots) {
     let hit = 0;
+    let used = 0;
     for (const k of s.samples) {
-      px(d, k, P); px(S.base, k, Q);
+      const q = at(T, (k >> 2) % S.pw, ((k >> 2) / S.pw) | 0); if (q < 0) continue; used++;
+      px(d, q, P); px(S.base, k, Q);
       const D = diffD(P[0] * gain[0], P[1] * gain[1], P[2] * gain[2], Q[0], Q[1], Q[2]);
       if (D * sens > 1 + 4 * S.noise[k >> 2]) hit++;
     }
-    const c = hit / (s.samples.length || 1);
+    const c = hit / (used || 1);
     covers.push([s, c]); slots++;
     if (c >= need && (s.cover || 0) < need * .6) jumped++;
   }
@@ -779,7 +902,11 @@ function drawAim() {
   aimCtx.lineWidth = 2.5; aimCtx.strokeStyle = '#ffd23f';
   for (const st of S.st) for (const sl of st.slots) {
     aimCtx.beginPath();
-    sl.pts.forEach(([x, y], i) => { const [u, v] = project(S.Hm, x / S.W, y / S.H); i ? aimCtx.lineTo(u * w, v * h) : aimCtx.moveTo(u * w, v * h); });
+    const T = curT();
+    sl.pts.forEach(([x, y], i) => {
+      const [u0, v0] = project(S.Hm, x / S.W, y / S.H), u = Tx(T, u0 * S.pw, v0 * S.ph) / S.pw * w, v = Ty(T, u0 * S.pw, v0 * S.ph) / S.ph * h;
+      i ? aimCtx.lineTo(u, v) : aimCtx.moveTo(u, v);
+    });
     aimCtx.closePath(); aimCtx.stroke();
   }
 }

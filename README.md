@@ -30,3 +30,7 @@ Hands held in the projector beam throw a shadow on the bright stage; the camera 
 - *Check camera aim* shows red dots where the camera sees shadow, plus each animal's live match score. Use it with the *Match needed* and *Sensitivity* sliders to tune for your room.
 - The films are drawn live on the canvas. To use real clips instead, drop an mp4 named after the animal into `games/shadow-puppets/videos/` (`rabbit.mp4`, `dog.mp4`, `bird.mp4`, `swan.mp4`, `deer.mp4`, `crocodile.mp4`). Any clip that's there plays in place of the drawn film; the rest keep their drawn film.
 - The camera line-up from Block Table is reused if Shadow Puppets hasn't saved its own yet.
+
+## Block Table: staying lined up
+
+After the four-dot line-up, Block Table keeps tracking crisp edges (pad borders, outlines, coral) in a dozen patches across the table and fits how the whole picture slid, twisted or tilted, so a phone that gets bumped keeps working without a new line-up. Detection pauses while the picture is still moving. If it can't find its place for about five seconds, it runs the four-dot line-up again by itself.
