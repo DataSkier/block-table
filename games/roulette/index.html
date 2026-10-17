@@ -151,6 +151,7 @@ const video = $('cam'), probe = $('probe'), pctx = probe.getContext('2d', {willR
 const sheet = $('sheet'), statusEl = $('status');
 const TAU = Math.PI * 2;
 const FONT = "'Baloo 2','Trebuchet MS',system-ui,sans-serif";
+const VERSION = 'v5';                                // shown on the camera panel, to tell a fresh copy from a cached one
 
 /* ---------- settings ---------- */
 const cfg = {sens: 120, chip: 70, wave: 45, panel: true, sound: true, front: false, proto: null};
@@ -501,9 +502,11 @@ function prep() {
   S.wk = Int32Array.from(wk); S.wb = Uint8Array.from(wb); S.wx = Float32Array.from(wx);
   S.wbN = new Uint16Array(NB); for (const q of wb) S.wbN[q]++;
   const gk = [];
-  for (let i = 0; i < n; i += 17) if (bb.ok[i]) gk.push(((b.y0 + ((i / bw) | 0)) * pw + b.x0 + i % bw) * 4);
-  for (let j = 0; j < wk.length; j += 9) gk.push(wk[j]);
+  for (let i = 0; i < n; i += 7) if (bb.ok[i]) gk.push(((b.y0 + ((i / bw) | 0)) * pw + b.x0 + i % bw) * 4);
+  for (let j = 0; j < wk.length; j += 3) gk.push(wk[j]);
   S.gk = Int32Array.from(gk);
+  S.wprev = new Float32Array(wk.length); S.wcur = new Float32Array(wk.length); S.wmv = new Float32Array(wk.length); S.wsort = new Float32Array(wk.length);
+  S.wcnt = new Uint16Array(NB); S.wprevOk = false; S.wheelStill = 0;
   S.cell0 = cellCamArea(5.5, 1);
 }
 /* Each sample is averaged with four neighbours, which smooths out the rainbow patterns a camera sees on a screen. */
@@ -539,74 +542,114 @@ async function learn(box) {
   }
   if (!box) markReadable();
 }
-/* Chip colours are only read where the empty cell was plain cream, not on printed numbers or lines. */
+/* Chip colours are only read where the empty cell was plain cream, and at least a camera pixel away from any
+   printed number or line: a tiny shift or blur of the picture changes the pixels right at an edge. */
 function markReadable() {
-  const bb = S.bb, W = S.pw, rs = [[], [], []];
-  const kOf = i => ((bb.y0 + ((i / bb.bw) | 0)) * W + bb.x0 + i % bb.bw) * 4;
+  const bb = S.bb, W = S.pw, w = bb.bw, h = bb.bh, rs = [[], [], []], base = new Uint8Array(bb.n);
+  const kOf = i => ((bb.y0 + ((i / w) | 0)) * W + bb.x0 + i % w) * 4;
   for (let i = 0; i < bb.n; i += 5) if (bb.ok[i]) { const k = kOf(i); for (let c = 0; c < 3; c++) rs[c].push(S.ref[k + c]); }
   const med = rs.map(a => a.sort((p, q) => p - q)[a.length >> 1] || 1);
   for (let i = 0; i < bb.n; i++) {
-    bb.read[i] = 0; if (!bb.ok[i]) continue;
+    if (!bb.ok[i]) continue;
     const k = kOf(i); let ok = med[0] + med[1] + med[2] > 120;
     for (let c = 0; c < 3 && ok; c++) { const q = S.ref[k + c] / med[c]; if (q < .72 || q > 1.3) ok = false; }
-    bb.read[i] = ok ? 1 : 0;
+    base[i] = ok ? 1 : 0;
+  }
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    let ok = base[y * w + x] === 1;
+    for (let dy = -1; dy <= 1 && ok; dy++) for (let dx = -1; dx <= 1 && ok; dx++) {
+      const xx = x + dx, yy = y + dy;
+      if (xx < 0 || yy < 0 || xx >= w || yy >= h || !base[yy * w + xx]) ok = false;
+    }
+    bb.read[y * w + x] = ok ? 1 : 0;
   }
 }
-const GR = [new Float32Array(1024), new Float32Array(1024), new Float32Array(1024)];
-function gainOf(d) {                               // the camera's drift in brightness and tint, from the middle of many ratios
-  let m = 0;
-  for (let j = 0; j < S.gk.length && m < 1024; j++) {
-    const k = S.gk[j]; if (S.ref[k] + S.ref[k + 1] + S.ref[k + 2] < 90) continue;
-    for (let c = 0; c < 3; c++) GR[c][m] = (S.ref[k + c] + 1) / (d[k + c] + 1);
-    m++;
+/* The camera's drift in brightness and tint, measured separately for each tone from dark to bright. When the
+   camera re-exposes, areas already at full brightness stay put while middle tones shift, so a single correction
+   for the whole picture leaves false changes on every number, line and wheel pocket. */
+const TB = 16, TONE_N = new Uint16Array(3 * TB), TONE_V = new Float32Array(3 * TB * 256);
+function toneOf(d) {
+  TONE_N.fill(0);
+  for (let j = 0; j < S.gk.length; j++) {
+    const k = S.gk[j];
+    for (let c = 0; c < 3; c++) {
+      const r = S.ref[k + c], b = c * TB + Math.min(TB - 1, r >> 4);
+      if (TONE_N[b] < 256) TONE_V[b * 256 + TONE_N[b]++] = (r + 1) / (d[k + c] + 1);
+    }
   }
-  if (m < 20) return [1, 1, 1];
-  return GR.map(a => a.subarray(0, m).sort()[m >> 1]);
+  const T = new Float32Array(3 * TB);
+  for (let b = 0; b < 3 * TB; b++) T[b] = TONE_N[b] >= 12 ? TONE_V.subarray(b * 256, b * 256 + TONE_N[b]).sort()[TONE_N[b] >> 1] : 0;
+  for (let c = 0; c < 3; c++) for (let b = 0; b < TB; b++) {     // a tone with too few samples borrows from the nearest that has them
+    if (T[c * TB + b]) continue;
+    let f = 0;
+    for (let s = 1; s < TB && !f; s++) { if (b - s >= 0 && T[c * TB + b - s]) f = T[c * TB + b - s]; else if (b + s < TB && T[c * TB + b + s]) f = T[c * TB + b + s]; }
+    T[c * TB + b] = f || 1;
+  }
+  return T;
+}
+function fix(P, Q, T) { for (let c = 0; c < 3; c++) P[c] *= T[c * TB + Math.min(TB - 1, Q[c] >> 4)]; }
+/* Fold what the camera sees now into the reference photo, for pixels the test picks. */
+function absorb(d, T, keys) {
+  for (const k of keys) for (let c = 0; c < 3; c++) S.ref[k + c] = Math.min(255, d[k + c] * T[c * TB + Math.min(TB - 1, S.ref[k + c] >> 4)]);
 }
 
 /* ---------- the wave ---------- */
-function readWheel(d, gain) {
-  const ref = S.ref, nz = S.noise, sens = cfg.sens / 100, cnt = S.wcnt || (S.wcnt = new Uint16Array(NB)), ov = S.ov, row = S.pw * 4;
-  cnt.fill(0);
-  let tot = 0, sx = 0, sy = 0;
-  for (let j = 0; j < S.wk.length; j++) {
-    const k = S.wk[j]; px(d, k, P); px(ref, k, Q);
-    const on = diffD(P[0] * gain[0], P[1] * gain[1], P[2] * gain[2], Q[0], Q[1], Q[2]) * sens > 1 + 4 * nz[k >> 2];
-    for (const o of [0, 4, row, row + 4]) { const q = k + o; if (q < ov.length) { ov[q] = 255; ov[q + 1] = 70; ov[q + 2] = 60; ov[q + 3] = on ? 210 : 0; } }
-    if (!on) continue;
-    cnt[S.wb[j]]++; tot++; sx += S.wx[j]; sy += S.wb[j];
+/* Two readings of the wheel pad on every camera frame:
+   - covered: how much of it differs from the photo of it empty (shown on the camera panel, in red);
+   - motion: what changed since the previous frame (in white). The wave is read from motion only, so a camera
+     re-exposing or an out-of-date photo can't hide it or fake it. A uniform shift of every pixel is the camera
+     re-exposing, so only change beyond the middle shift counts as motion. */
+function readWheel(d, T) {
+  const ref = S.ref, nz = S.noise, sens = cfg.sens / 100, ov = S.ov, row = S.pw * 4, n = S.wk.length;
+  const cur = S.wcur, mv = S.wmv, prev = S.wprev, ms = performance.now();
+  if (ms - (S.wLast || 0) > 400) S.wprevOk = false;        // reading paused (a spin, a re-learn): start motion afresh
+  S.wLast = ms;
+  let tot = 0, sumAbs = 0;
+  for (let j = 0; j < n; j++) {
+    const k = S.wk[j]; px(d, k, P); px(ref, k, Q); fix(P, Q, T);
+    const on = diffD(P[0], P[1], P[2], Q[0], Q[1], Q[2]) * sens > 1 + 4 * nz[k >> 2];
+    if (on) tot++;
+    cur[j] = .3 * P[0] + .59 * P[1] + .11 * P[2];
+    mv[j] = cur[j] - prev[j]; sumAbs += Math.abs(mv[j]);
+    for (const o of [0, 4, row, row + 4]) { const q = k + o; if (q < ov.length) { ov[q] = 255; ov[q + 1] = 70; ov[q + 2] = 60; ov[q + 3] = on ? 150 : 0; } }
   }
-  let top = -1, bot = -1;
-  for (let b = 0; b < NB; b++) if (cnt[b] >= Math.max(4, S.wbN[b] * .06)) { if (top < 0) top = b; bot = b; }
-  return {top: top < 0 ? null : (top + .5) / NB, bot: bot < 0 ? null : (bot + .5) / NB, mid: top < 0 ? null : (sy / tot + .5) / NB,
-          frac: tot / (S.wk.length || 1), xc: tot ? sx / tot : 0};
-}
-/* A spin is something over the wheel moving down far enough within two seconds. Its top edge, its middle and
-   its bottom edge are all followed and whichever moved down furthest counts: the top edge suits an arm reaching
-   in from below, the bottom edge one from above, and the middle a hand big enough to cover the wheel.
-   The number on the camera panel is exactly the number that has to reach Wave needed: no other conditions. */
-const EDGES = ['top', 'mid', 'bot'];
-function waveLogic(wv) {
-  const t = performance.now() / 1000, db = S.diag.board;
-  S.wv = wv;
-  if (wv.frac > .8 && db && db.shaky) { S.wh = []; return; }   // the room light changed: it hits the betting table too, a hand doesn't
-  S.wh.push({t, top: wv.top, mid: wv.mid, bot: wv.bot, xc: wv.xc});
-  while (S.wh.length && S.wh[0].t < t - 2) S.wh.shift();
-  const seen = S.wh.filter(q => q.top != null);
-  let best = null;
-  for (const f of EDGES) {
-    let lo = null;                                  // the highest point so far, so the move is always downward in time
-    for (const q of seen) {
-      if (!lo || q[f] < lo[f]) lo = q;
-      const tr = q[f] - lo[f];
-      if (!best || tr > best.travel) best = {f, st: lo, end: q, travel: tr};
+  const fresh = S.wprevOk && sumAbs > n * .3;               // an identical camera frame moves nothing: skip it
+  let moved = 0, sy = 0, sx = 0;
+  if (fresh) {
+    S.wsort.set(mv); const med = S.wsort.sort()[n >> 1], thr = 2200 / cfg.sens;
+    for (let j = 0; j < n; j++) {
+      if (Math.abs(mv[j] - med) <= thr) continue;
+      moved++; sy += S.wb[j]; sx += S.wx[j];
+      const k = S.wk[j];
+      for (const o of [0, 4, row, row + 4]) { const q = k + o; if (q < ov.length) { ov[q] = 255; ov[q + 1] = 255; ov[q + 2] = 255; ov[q + 3] = 235; } }
     }
+  }
+  prev.set(cur); S.wprevOk = true;
+  return {fresh, frac: tot / (n || 1), motion: moved / (n || 1), my: moved ? (sy / moved + .5) / NB : null, xc: moved ? sx / moved : 0};
+}
+/* A spin is motion over the wheel whose middle moves down far enough within about a second and a half.
+   The number on the camera panel is exactly the number that has to reach Wave needed: no other conditions. */
+const MOTION_MIN = .015;                                   // share of the wheel pad that must be moving for a frame to count
+function waveLogic(wv, d, T) {
+  const t = performance.now() / 1000;
+  S.wv = wv;
+  if (!wv.fresh) return;
+  if (wv.motion < .01) {                                   // still: if the pad differs from its photo anyway, the photo is out of date
+    if (++S.wheelStill > 40 && wv.frac > .03) { absorb(d, T, wheelKeys()); S.wheelStill = 0; S.diag.wheelRelearned = (S.diag.wheelRelearned || 0) + 1; }
+  } else S.wheelStill = 0;
+  S.wh.push({t, my: wv.motion >= MOTION_MIN ? wv.my : null, xc: wv.xc});
+  while (S.wh.length && S.wh[0].t < t - 1.6) S.wh.shift();
+  const seen = S.wh.filter(q => q.my != null);
+  let lo = null, best = null;
+  for (const q of seen) {                                   // highest point so far, so the move is always downward in time
+    if (!lo || q.my < lo.my) lo = q;
+    const tr = q.my - lo.my;
+    if (!best || tr > best.travel) best = {st: lo, end: q, travel: tr};
   }
   const travel = best ? best.travel : 0;
   if (travel >= (S.waveShow || 0) || t - S.waveShowT > 1.5) { S.waveShow = travel; S.waveShowT = t; }   // hold the best for a moment so it can be read
-  S.lastTravel = S.waveShow;
-  if (wv.top != null) S.waveSeen = t;
-  else if (S.waveSeen && t - S.waveSeen > .6) {    // the hand has gone: log how far that wave got
+  if (wv.motion >= MOTION_MIN) S.waveSeen = t;
+  else if (S.waveSeen && t - S.waveSeen > .6) {            // the hand has gone: log how far that wave got
     S.diag.waves.unshift({travel: r2(S.waveBest || 0), spun: false}); S.diag.waves.length = Math.min(10, S.diag.waves.length);
     S.waveSeen = 0; S.waveBest = 0;
   }
@@ -615,16 +658,21 @@ function waveLogic(wv) {
   const {st, end} = best;
   const span = seen.filter(q => q.t >= st.t && q.t <= end.t), xc = span.reduce((a, q) => a + q.xc, 0) / (span.length || 1);
   const speed = travel / Math.max(.1, end.t - st.t);
-  S.diag.waves.unshift({travel: r2(travel), by: best.f, speed: r2(speed), side: r2(xc), spun: true}); S.diag.waves.length = Math.min(10, S.diag.waves.length);
-  S.waveSeen = 0; S.waveBest = 0;
+  S.diag.waves.unshift({travel: r2(travel), speed: r2(speed), side: r2(xc), spun: true}); S.diag.waves.length = Math.min(10, S.diag.waves.length);
+  S.waveSeen = 0; S.waveBest = 0; S.wh = [];
   spinWheel(clamp(speed / 1.6, .6, 1.5), xc < -.15 ? -1 : 1);
+}
+function wheelKeys() {
+  const w = S.wbox, out = [];
+  for (let y = w.y0; y <= w.y1; y++) for (let x = w.x0; x <= w.x1; x++) out.push((y * S.pw + x) * 4);
+  return out;
 }
 
 /* ---------- the chips ----------
    Each cell pixel that changed is sorted as blue, yellow, something else (a hand, a shadow), or unreadable
    (it sits on a printed number or line; it takes the colour of the chip around it). Same-colour pixels are
    grouped; each group is a pile of chips whose middle says which bet it is and whose size says how many. */
-function classifyBoard(d, gain) {
+function classifyBoard(d, T) {
   const bb = S.bb, lab = S.lab, ref = S.ref, nz = S.noise, sens = cfg.sens / 100, W = S.pw, PR = protos();
   let used = 0, changed = 0;
   for (let i = 0; i < bb.n; i++) {
@@ -632,12 +680,12 @@ function classifyBoard(d, gain) {
     if (!bb.ok[i]) continue;
     used++;
     const k = ((bb.y0 + ((i / bb.bw) | 0)) * W + bb.x0 + i % bb.bw) * 4;
-    px(d, k, P); P[0] *= gain[0]; P[1] *= gain[1]; P[2] *= gain[2]; px(ref, k, Q);
+    px(d, k, P); px(ref, k, Q); fix(P, Q, T);
     if (diffD(P[0], P[1], P[2], Q[0], Q[1], Q[2]) * sens <= 1 + 4 * nz[k >> 2]) continue;
     changed++;
     if (!bb.read[i]) { lab[i] = 4; continue; }
     const r0 = P[0] / (Q[0] + 1), r1 = P[1] / (Q[1] + 1), r2_ = P[2] / (Q[2] + 1), s = r0 + r1 + r2_;
-    if (s < .6) { lab[i] = 5; continue; }          // much darker than the cell: a shadow
+    if (P[0] + P[1] + P[2] < 60) { lab[i] = 5; continue; }   // too dark to tell a colour: a shadow
     const nr = r0 / s, nb = r2_ / s; S.cnr[i] = nr; S.cnb[i] = nb;
     let best = 3, bd = .11;
     for (const [cls, p] of PR) { const dd = Math.hypot(nr - p[0], nb - p[1]); if (dd < bd) { bd = dd; best = cls; } }
@@ -648,12 +696,20 @@ function classifyBoard(d, gain) {
 function interpretBoard() {
   const bb = S.bb, n = bb.n, w = bb.bw, h = bb.bh, lab = S.lab, L2 = S.lab2;
   const nb8 = (i, f) => { const x = i % w, y = (i / w) | 0; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { if (!dx && !dy) continue; const xx = x + dx, yy = y + dy; if (xx >= 0 && yy >= 0 && xx < w && yy < h) f(yy * w + xx); } };
-  for (let i = 0; i < n; i++) {
-    let v = lab[i];
-    if (v === 5) v = 3;
-    if (v === 4) { let a = 0, b = 0; nb8(i, q => { if (lab[q] === 1) a++; else if (lab[q] === 2) b++; }); v = a >= 2 && a >= b ? 1 : b >= 2 ? 2 : 3; }
-    L2[i] = v;
+  /* A change on a printed number or line only counts as part of a chip around it, never on its own. A chip sits
+     on the number in its cell, so its colour spreads in from the readable edge over a few passes. */
+  for (let pass = 0; pass < 5; pass++) {
+    let grew = 0;
+    for (let i = 0; i < n; i++) {
+      L2[i] = lab[i];
+      if (lab[i] !== 4) continue;
+      let a = 0, b = 0; nb8(i, q => { if (lab[q] === 1) a++; else if (lab[q] === 2) b++; });
+      if (a >= 2 && a >= b) { L2[i] = 1; grew++; } else if (b >= 2) { L2[i] = 2; grew++; }
+    }
+    lab.set(L2);
+    if (!grew) break;
   }
+  for (let i = 0; i < n; i++) L2[i] = lab[i] === 5 ? 3 : lab[i] === 4 ? 0 : lab[i];
   for (let i = 0; i < n; i++) {                     // a lone chip-coloured speck is noise
     lab[i] = L2[i];
     if (L2[i] === 1 || L2[i] === 2) { let s = 0; nb8(i, q => { if (L2[q] === L2[i]) s++; }); if (s < 2) lab[i] = 0; }
@@ -699,13 +755,26 @@ function readBets(blobs, st) {
   return {bets: {blue: [...bets.blue.values()], yellow: [...bets.yellow.values()]}, hand, shaky};
 }
 const sig = bets => COLORS.map(c => bets[c].map(e => e.bet.key + 'x' + e.n).sort().join(';')).join('|');
-function boardLogic(rb) {
+function boardLogic(rb, d, T) {
   if (rb.shaky) {                                 // most of the table changed: the room or the camera, not chips
     if (++S.shakyN > 25) { S.shakyN = 0; relearnAll('The camera\'s view changed. Clear the chips off the table for a moment.'); }
     S.stableN = 0; return;
   }
   S.shakyN = 0;
-  if (rb.hand) { S.stableN = 0; return; }          // a hand over the table: keep the last bets until it's gone
+  if (rb.hand) {                                  // a hand over the table: keep the last bets until it's gone
+    S.stableN = 0;
+    /* A "hand" that holds perfectly still for about three seconds isn't a hand: fold that change (never chips)
+       into the photo of the empty table, so it can't freeze the bets for good. */
+    const big = S.diag.board.biggestOther, was = S.handBig || 0;
+    S.handRun = Math.abs(big - was) < Math.max(was, 1) * .2 ? (S.handRun || 0) + 1 : 0; S.handBig = big;
+    if (S.handRun >= 10) {
+      const bb = S.bb, keys = [];
+      for (let i = 0; i < bb.n; i++) if (S.lab[i] === 3) keys.push(((bb.y0 + ((i / bb.bw) | 0)) * S.pw + bb.x0 + i % bb.bw) * 4);
+      absorb(d, T, keys); S.handRun = 0; S.diag.tableRelearned = (S.diag.tableRelearned || 0) + 1;
+    }
+    return;
+  }
+  S.handRun = 0;
   const s = sig(rb.bets);
   if (s === S.lastSig) S.stableN++; else { S.stableN = 0; S.lastSig = s; }
   if (S.stableN >= 2) S.bets = rb.bets;
@@ -717,12 +786,12 @@ function tick() {
   if (S.mode !== 'camera' || S.scene || !sheet.hidden || !S.ref || !S.bb || S.busy) return;
   if (S.calKey && orientKey() !== S.calKey) { begin(true); return; }   // the screen or camera turned: line up again
   if (S.phase !== 'bet' && S.phase !== 'teach') return;
-  const d = grab(), gain = gainOf(d);
-  S.gain = gain.map(r2); S.tickN++;
+  const d = grab(), T = toneOf(d);
+  S.gain = [T[7], T[TB + 7], T[2 * TB + 7], T[13], T[TB + 13], T[2 * TB + 13]].map(r2); S.tickN++;
   if (S.phase === 'bet') {
-    waveLogic(readWheel(d, gain));
-    if (S.phase === 'bet' && S.tickN % 4 === 0) { const st = classifyBoard(d, gain); boardLogic(readBets(interpretBoard(), st)); }
-  } else if (S.tickN % 4 === 0) teachTick(d, gain);
+    waveLogic(readWheel(d, T), d, T);
+    if (S.phase === 'bet' && S.tickN % 4 === 0) { const st = classifyBoard(d, T); boardLogic(readBets(interpretBoard(), st), d, T); }
+  } else if (S.tickN % 4 === 0) teachTick(d, T);
   ovCtx.putImageData(S.ovImg, 0, 0);
 }
 setInterval(tick, 70);
@@ -975,19 +1044,13 @@ function drawPanel() {
   outline([[BX(-1), BY(0)], [BX(13), BY(0)], [BX(13), BY(3)], [BX(12), BY(3)], [BX(12), BY(4.6)], [BX(0), BY(4.6)], [BX(0), BY(3)], [BX(-1), BY(3)]]);
   const L = G.R * 1.06;
   outline([[G.cx - L, G.cy - L], [G.cx + L, G.cy - L], [G.cx + L, G.cy + L], [G.cx - L, G.cy + L]]);
-  if (S.phase === 'bet') {                         // where a wave has to get to
-    const need = G.cy - L + 2 * L * Math.max(.6, .45 + cfg.wave / 100);
-    ctx.setLineDash([6, 5]); ctx.strokeStyle = '#7dffa8';
-    const [a, b] = [at(camPt(G.cx - L, need)), at(camPt(G.cx + L, need))];
-    ctx.beginPath(); ctx.moveTo(...a); ctx.lineTo(...b); ctx.stroke(); ctx.setLineDash([]);
-    if (S.wv && S.wv.top != null) {
-      const ty = G.cy - L + 2 * L * S.wv.top, [c, d] = [at(camPt(G.cx - L, ty)), at(camPt(G.cx + L, ty))];
-      ctx.lineWidth = Math.max(2.5, P.w * .008); ctx.strokeStyle = '#fff';
-      ctx.beginPath(); ctx.moveTo(...c); ctx.lineTo(...d); ctx.stroke();
-    }
+  if (S.phase === 'bet' && S.wv && S.wv.my != null && S.wv.motion >= MOTION_MIN) {   // the middle of what's moving over the wheel
+    const ty = G.cy - L + 2 * L * S.wv.my, [c, d] = [at(camPt(G.cx - L, ty)), at(camPt(G.cx + L, ty))];
+    ctx.lineWidth = Math.max(2.5, P.w * .008); ctx.strokeStyle = '#7dffa8';
+    ctx.beginPath(); ctx.moveTo(...c); ctx.lineTo(...d); ctx.stroke();
   }
-  const fs = Math.max(11, P.h * .075), db = S.diag.board, cur = S.waveShow || 0;
-  const txt = [`wave ${Math.floor(cur * 100)}% of ${cfg.wave}%`, `wheel ${Math.round((S.wv ? S.wv.frac : 0) * 100)}% covered`, db ? (db.hand ? 'hand over the table' : db.shaky ? 'table changed a lot' : `${db.blobs.filter(b => b.chips >= .35).length} chip piles`) : ''].filter(Boolean).join('  ·  ');
+  const fs = Math.max(11, P.h * .07), db = S.diag.board, cur = S.waveShow || 0;
+  const txt = [VERSION, `wave ${Math.floor(cur * 100)}% of ${cfg.wave}%`, `moving ${Math.round((S.wv ? S.wv.motion : 0) * 100)}%`, db ? (db.hand ? 'hand over the table' : db.shaky ? 'table changed a lot' : `${db.blobs.filter(b => b.chips >= .35).length} chip piles`) : ''].filter(Boolean).join('  ·  ');
   ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fillRect(P.x, P.y + P.h - fs * 1.6, P.w, fs * 1.6);
   words(txt, P.x + fs * .5, P.y + P.h - fs * .8, fs, '#fff', 'left', 700);
   ctx.restore();
@@ -1068,8 +1131,9 @@ async function begin(fresh) {
     else { await calibrate(); try { localStorage.setItem(LINEUP, JSON.stringify(S.Hm)); } catch (e) {} }
     setHi(); S.prepKey = null; layout();
     S.prompt = 'Clear the chips off the table';
+    lockCamera();                                   // lock exposure first, so the photo of the empty table is taken the way play is seen
     await sleep(WAIT + 1000);
-    await learn(); lockCamera(); S.calKey = orientKey();
+    await learn(); S.calKey = orientKey();
     resetWheel();
     speak('Place your bets');
     return true;
@@ -1109,7 +1173,9 @@ $('resume').onclick = backToPlay;
 $('teach').onclick = teach;
 $('gear').onclick = () => showSheet(true);
 $('copy').onclick = async () => {
-  const text = JSON.stringify({game: 'roulette', when: new Date().toISOString(), mode: S.mode, phase: S.phase,
+  const text = JSON.stringify({game: 'roulette', version: VERSION, when: new Date().toISOString(), mode: S.mode, phase: S.phase,
+    wheelNow: S.wv ? {moving: r2(S.wv.motion), covered: r2(S.wv.frac)} : null,
+    photoUpdated: {wheel: S.diag.wheelRelearned || 0, table: S.diag.tableRelearned || 0},
     settings: {sens: cfg.sens, chip: cfg.chip, wave: cfg.wave}, chipColours: cfg.proto || 'built-in', gain: S.gain,
     camera: video.videoWidth ? `${video.videoWidth}x${video.videoHeight}` : null, waves: S.diag.waves, board: S.diag.board,
     teach: S.diag.teach || null, bets: COLORS.map(c => `${c}: ` + S.bets[c].map(e => e.n + 'x ' + e.bet.name).join(', '))}, null, 1);
