@@ -568,29 +568,33 @@ function gainOf(d) {                               // the camera's drift in brig
 function readWheel(d, gain) {
   const ref = S.ref, nz = S.noise, sens = cfg.sens / 100, cnt = S.wcnt || (S.wcnt = new Uint16Array(NB)), ov = S.ov, row = S.pw * 4;
   cnt.fill(0);
-  let tot = 0, sx = 0;
+  let tot = 0, sx = 0, sy = 0;
   for (let j = 0; j < S.wk.length; j++) {
     const k = S.wk[j]; px(d, k, P); px(ref, k, Q);
     const on = diffD(P[0] * gain[0], P[1] * gain[1], P[2] * gain[2], Q[0], Q[1], Q[2]) * sens > 1 + 4 * nz[k >> 2];
     for (const o of [0, 4, row, row + 4]) { const q = k + o; if (q < ov.length) { ov[q] = 255; ov[q + 1] = 70; ov[q + 2] = 60; ov[q + 3] = on ? 210 : 0; } }
     if (!on) continue;
-    cnt[S.wb[j]]++; tot++; sx += S.wx[j];
+    cnt[S.wb[j]]++; tot++; sx += S.wx[j]; sy += S.wb[j];
   }
   let top = -1, bot = -1;
   for (let b = 0; b < NB; b++) if (cnt[b] >= Math.max(4, S.wbN[b] * .06)) { if (top < 0) top = b; bot = b; }
-  return {top: top < 0 ? null : (top + .5) / NB, bot: bot < 0 ? null : (bot + .5) / NB, frac: tot / (S.wk.length || 1), xc: tot ? sx / tot : 0};
+  return {top: top < 0 ? null : (top + .5) / NB, bot: bot < 0 ? null : (bot + .5) / NB, mid: top < 0 ? null : (sy / tot + .5) / NB,
+          frac: tot / (S.wk.length || 1), xc: tot ? sx / tot : 0};
 }
-/* A spin is the top edge of whatever is over the wheel moving down most of the way, within about two seconds.
-   Following the top edge works whichever side the arm comes from. */
+/* A spin is something over the wheel moving down most of the way within about two seconds. Its top edge, its
+   middle and its bottom edge are all followed and whichever moved down furthest counts: the top edge suits an arm
+   reaching in from below, the bottom edge one from above, and the middle a hand big enough to cover the wheel. */
+const EDGES = ['top', 'mid', 'bot'];
 function waveLogic(wv) {
-  const t = performance.now() / 1000;
+  const t = performance.now() / 1000, db = S.diag.board;
   S.wv = wv;
-  if (wv.frac > .8) { S.wh = []; S.ep = null; return; }        // the whole wheel changed at once: the room light, not a hand
-  S.wh.push({t, top: wv.top, xc: wv.xc});
+  if (wv.frac > .8 && db && db.shaky) { S.wh = []; S.ep = null; return; }   // the room light changed: it hits the betting table too, a hand doesn't
+  S.wh.push({t, top: wv.top, mid: wv.mid, bot: wv.bot, xc: wv.xc});
   while (S.wh.length && S.wh[0].t < t - 2.5) S.wh.shift();
   if (wv.top != null) {
-    const ep = S.ep || (S.ep = {t0: t, min: wv.top, travel: 0});
-    ep.last = t; ep.min = Math.min(ep.min, wv.top); ep.travel = Math.max(ep.travel, wv.top - ep.min);
+    const ep = S.ep || (S.ep = {t0: t, min: {top: 1, mid: 1, bot: 1}, travel: 0});
+    ep.last = t;
+    for (const f of EDGES) { ep.min[f] = Math.min(ep.min[f], wv[f]); ep.travel = Math.max(ep.travel, wv[f] - ep.min[f]); }
   } else if (S.ep && t - S.ep.last > .6) {
     S.lastTravel = S.ep.travel;
     S.diag.waves.unshift({travel: r2(S.ep.travel), secs: r2(S.ep.last - S.ep.t0), spun: false}); S.diag.waves.length = Math.min(10, S.diag.waves.length);
@@ -598,14 +602,19 @@ function waveLogic(wv) {
   }
   const seen = S.wh.filter(q => q.top != null); if (!seen.length) return;
   const end = seen[seen.length - 1]; if (t - end.t > .45) return;
-  let st = null;
-  for (const q of seen) if (q.t >= end.t - 1.8 && q.t <= end.t - .1 && (!st || q.top < st.top)) st = q;
-  if (!st || st.top > .45) return;
-  const travel = end.top - st.top;
-  if (travel < cfg.wave / 100 || end.top < .6) return;
+  let best = null;
+  for (const f of EDGES) {
+    let st = null;
+    for (const q of seen) if (q.t >= end.t - 1.8 && q.t <= end.t - .1 && (!st || q[f] < st[f])) st = q;
+    if (!st || st[f] > .5 || end[f] < .55) continue;
+    const tr = end[f] - st[f];
+    if (!best || tr > best.travel) best = {f, st, travel: tr};
+  }
+  if (!best || best.travel < cfg.wave / 100) return;
+  const {st, travel} = best;
   const span = seen.filter(q => q.t >= st.t && q.t <= end.t), xc = span.reduce((a, q) => a + q.xc, 0) / span.length;
   const speed = travel / Math.max(.1, end.t - st.t);
-  S.diag.waves.unshift({travel: r2(travel), speed: r2(speed), side: r2(xc), spun: true}); S.diag.waves.length = Math.min(10, S.diag.waves.length);
+  S.diag.waves.unshift({travel: r2(travel), by: best.f, speed: r2(speed), side: r2(xc), spun: true}); S.diag.waves.length = Math.min(10, S.diag.waves.length);
   S.lastTravel = travel; S.ep = null;
   spinWheel(clamp(speed / 1.6, .6, 1.5), xc < -.15 ? -1 : 1);
 }
@@ -977,7 +986,7 @@ function drawPanel() {
     }
   }
   const fs = Math.max(11, P.h * .075), db = S.diag.board, cur = S.ep ? S.ep.travel : S.lastTravel;
-  const txt = [`wave ${Math.round((cur || 0) * 100)}% of ${cfg.wave}%`, db ? (db.hand ? 'hand over the table' : db.shaky ? 'table changed a lot' : `${db.blobs.filter(b => b.chips >= .35).length} chip piles`) : ''].filter(Boolean).join('  ·  ');
+  const txt = [`wave ${Math.round((cur || 0) * 100)}% of ${cfg.wave}%`, `wheel ${Math.round((S.wv ? S.wv.frac : 0) * 100)}% covered`, db ? (db.hand ? 'hand over the table' : db.shaky ? 'table changed a lot' : `${db.blobs.filter(b => b.chips >= .35).length} chip piles`) : ''].filter(Boolean).join('  ·  ');
   ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fillRect(P.x, P.y + P.h - fs * 1.6, P.w, fs * 1.6);
   words(txt, P.x + fs * .5, P.y + P.h - fs * .8, fs, '#fff', 'left', 700);
   ctx.restore();
