@@ -65,7 +65,3 @@ How it reads the table, using what the other games learned:
 - The live camera panel under the wheel shows what it reads: blue and yellow chips in their colours, anything else that changed in red, a white line at the top of a hand over the wheel, and a green dashed line where a wave has to reach. *Copy readings* copies the latest numbers as text.
 
 `#demo` lets you tap the table to bet (tap a player's card to switch colour) and swipe down over the wheel to spin. `#kiosk` works as in the other games, and reuses Block Table's line-up if Roulette hasn't saved one.
-
-## Block Table: staying lined up
-
-After the four-dot line-up, Block Table keeps tracking crisp edges (pad borders, outlines, coral) in a dozen patches across the table and fits how the whole picture slid, twisted or tilted, so a phone that gets bumped keeps working without a new line-up. Detection pauses while the picture is still moving. If it can't find its place for about five seconds, it runs the four-dot line-up again by itself.
