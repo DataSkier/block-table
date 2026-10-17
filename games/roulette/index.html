@@ -1,0 +1,1150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Roulette</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;800&family=Nunito:wght@500;700&display=swap">
+<style>
+/* Layout: a full-bleed projected roulette table, with one setup sheet docked left (bottom on narrow screens). */
+:root{
+  --field:#000;
+  --sheet:#0f1524;
+  --sheet-edge:#27314b;
+  --well:#182036;
+  --ink:#eef2f8;
+  --ink-soft:#9ba7c2;
+  --sun:#ffd23f;
+  --sun-ink:#231a00;
+  --red:#ff4b4b;
+  --green:#3ddc6b;
+  --blue:#3a8dff;
+  --display:'Baloo 2','Trebuchet MS',system-ui,sans-serif;
+  --body:'Nunito',system-ui,-apple-system,'Segoe UI',sans-serif;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%;margin:0}
+body{background:var(--field);color:var(--ink);font:500 15px/1.5 var(--body);overflow:hidden;overscroll-behavior:none}
+#field{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+video,#probe{display:none}
+#sheet>*{flex-shrink:0}
+#aim{margin:0;display:flex;flex-direction:column;gap:6px}
+#aimView{display:block;width:100%;height:auto;border-radius:12px;background:#000}
+#aim figcaption{color:var(--ink-soft);font-size:13px}
+.kiosk,.kiosk #field{cursor:none}
+
+#sheet{
+  position:fixed;left:0;top:0;bottom:0;width:min(400px,44vw);
+  background:var(--sheet);border-right:1px solid var(--sheet-edge);
+  overflow-y:auto;display:flex;flex-direction:column;gap:18px;
+  padding:calc(20px + env(safe-area-inset-top,0px)) 20px calc(20px + env(safe-area-inset-bottom,0px));
+}
+@media (max-width:759px){
+  #sheet{top:auto;right:0;width:auto;max-height:64%;border-right:0;border-top:1px solid var(--sheet-edge);
+    padding-top:18px;border-radius:18px 18px 0 0}
+}
+h1{font:800 34px/1 var(--display);margin:0;letter-spacing:-.01em;text-wrap:balance}
+h1 span:nth-child(1){color:var(--red)}
+h1 span:nth-child(2){color:var(--sun)}
+h1 span:nth-child(3){color:var(--green)}
+h1 span:nth-child(4){color:var(--blue)}
+.lead{margin:6px 0 0;color:var(--ink-soft);max-width:38ch}
+h2{font:700 12px/1 var(--body);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-soft);margin:0 0 8px}
+ol{margin:0;padding-left:1.25em;display:flex;flex-direction:column;gap:6px}
+ol li::marker{color:var(--sun);font-weight:700}
+.actions{display:flex;flex-wrap:wrap;gap:10px}
+button{
+  font:700 15px/1 var(--body);color:var(--ink);background:var(--well);
+  border:1px solid var(--sheet-edge);border-radius:999px;padding:13px 18px;cursor:pointer;min-height:44px;
+}
+button.primary{background:var(--sun);color:var(--sun-ink);border-color:var(--sun);flex:1 1 180px}
+button:hover{filter:brightness(1.12)}
+button:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid var(--blue);outline-offset:2px}
+.home{color:var(--ink-soft);font-weight:700;text-decoration:none;align-self:flex-start;padding:6px 0}
+.home:hover,.home:focus-visible{color:var(--ink);text-decoration:underline}
+#status{margin:0;min-height:1.5em;color:var(--sun)}
+#status:empty{display:none}
+details{background:var(--well);border-radius:14px;padding:4px 14px}
+summary{cursor:pointer;font-weight:700;padding:10px 0}
+.knobs{display:flex;flex-direction:column;gap:14px;padding:4px 0 14px}
+.knob{display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:baseline}
+.knob small{grid-column:1/-1;color:var(--ink-soft)}
+.knob output{font-variant-numeric:tabular-nums;color:var(--ink-soft)}
+.knob input[type=range]{grid-column:1/-1;width:100%;accent-color:var(--sun)}
+.check{display:flex;gap:10px;align-items:center}
+.check input{width:20px;height:20px;flex:none;accent-color:var(--sun)}
+.note{margin:0;color:var(--ink-soft);font-size:13px}
+#gear{
+  position:fixed;right:calc(10px + env(safe-area-inset-right,0px));top:calc(10px + env(safe-area-inset-top,0px));
+  width:44px;height:44px;padding:0;background:rgba(20,40,30,.35);border-color:rgba(20,40,30,.3);color:rgba(255,255,255,.75);font-size:20px;
+}
+</style>
+</head>
+<body>
+<canvas id="field" aria-label="Projection field"></canvas>
+<video id="cam" playsinline muted></video>
+<canvas id="probe"></canvas>
+
+<aside id="sheet">
+  <div>
+    <h1><span>Ro</span><span>ul</span><span>et</span><span>te</span></h1>
+    <p class="lead">Bet with real blue and yellow chips on the projected table, then wave a hand down over the wheel to spin it.</p>
+  </div>
+
+  <section id="howto">
+    <h2>Set up</h2>
+    <ol>
+      <li>Mirror this phone to the projector and aim the projector down at a plain, light table.</li>
+      <li>Prop the phone above the table so its back camera sees the whole projected picture.</li>
+      <li>Clear the table and tap Start. Four dots flash while the camera lines itself up.</li>
+      <li>Blue and yellow are the two players. Put chips on numbers, on the lines between them, or on the outside bets.</li>
+      <li>Wave a hand from the top of the wheel to the bottom to spin. A faster wave spins harder.</li>
+    </ol>
+  </section>
+
+  <div class="actions">
+    <button class="primary" id="go" type="button">Start with camera</button>
+    <button id="resume" type="button" hidden>Back to play</button>
+    <button id="demo" type="button">Try without camera</button>
+    <button id="teach" type="button" hidden>Teach chip colours</button>
+  </div>
+  <a class="home" href="../../">&larr; All games</a>
+  <p id="status" role="status" aria-live="polite"></p>
+  <button id="aimBtn" type="button">Check camera aim</button>
+  <figure id="aim" hidden>
+    <canvas id="aimView" width="480" height="270"></canvas>
+    <figcaption>This is what the camera sees. The whole projected picture should fit inside it. After a line-up, yellow lines show where the camera expects the betting table and the wheel: they should sit right on top of the real ones.</figcaption>
+  </figure>
+
+  <details id="adjust">
+    <summary>Adjust</summary>
+    <div class="knobs">
+      <label class="knob" for="sens">Sensitivity <output id="sensOut"></output>
+        <input id="sens" type="range" min="50" max="250" step="10">
+        <small>How small a change the camera counts. Raise it if chips or waves are missed; lower it if bets appear by themselves.</small></label>
+      <label class="knob" for="chip">Chip size <output id="chipOut"></output>
+        <input id="chip" type="range" min="35" max="120" step="5">
+        <small>How wide one chip is, as a share of a number box. Used to count chips sitting side by side. Teaching the chips sets it.</small></label>
+      <label class="knob" for="wave">Wave needed <output id="waveOut"></output>
+        <input id="wave" type="range" min="25" max="80" step="5">
+        <small>How far down the wheel a hand has to travel to spin it.</small></label>
+      <label class="check" for="panel"><input id="panel" type="checkbox"> Show what the camera sees</label>
+      <label class="check" for="sound"><input id="sound" type="checkbox"> Sounds and spoken results</label>
+      <label class="check" for="front"><input id="front" type="checkbox"> Use the front camera</label>
+      <p class="note" id="protoNote"></p>
+      <button id="copy" type="button">Copy readings</button>
+    </div>
+  </details>
+</aside>
+
+<button id="gear" type="button" aria-label="Open settings" hidden>&#9881;</button>
+
+<script>
+(() => {
+'use strict';
+const $ = id => document.getElementById(id);
+const cv = $('field'), mainCtx = cv.getContext('2d');
+let ctx = mainCtx;                                   // swapped while the table art is painted to its own canvases
+const video = $('cam'), probe = $('probe'), pctx = probe.getContext('2d', {willReadFrequently: true});
+const sheet = $('sheet'), statusEl = $('status');
+const TAU = Math.PI * 2;
+const FONT = "'Baloo 2','Trebuchet MS',system-ui,sans-serif";
+
+/* ---------- settings ---------- */
+const cfg = {sens: 120, chip: 70, wave: 45, panel: true, sound: true, front: false, proto: null};
+try { Object.assign(cfg, JSON.parse(localStorage.getItem('roulette') || '{}')); } catch (e) {}
+const save = () => { try { localStorage.setItem('roulette', JSON.stringify(cfg)); } catch (e) {} };
+
+/* Chip colours are matched by how each colour channel changed against the empty table (so the projector's
+   own tint cancels out), boiled down to two numbers: red share and blue share. Neutral things (shadows,
+   white paper) and skin are listed too, so a hand is never read as a yellow chip. */
+const DEFAULT_PROTO = {blue: [.14, .58], yellow: [.48, .10]};
+const NEUTRAL = [1 / 3, 1 / 3], SKIN = [.42, .27];
+const protos = () => { const p = cfg.proto || DEFAULT_PROTO; return [[1, p.blue], [2, p.yellow], [3, NEUTRAL], [3, SKIN]]; };
+const COLORS = ['blue', 'yellow'];
+const CHIP = {blue: {face: '#2f6fe0', edge: '#1b4bb0', name: 'Blue'}, yellow: {face: '#ffd23f', edge: '#d9a400', name: 'Yellow'}};
+
+/* ---------- the wheel and the bets (single zero) ---------- */
+const ORDER = [0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30, 8, 23, 10, 5, 24, 16, 33, 1, 20, 14, 31, 9, 22, 18, 29, 7, 28, 12, 35, 3, 26];
+const REDS = new Set([1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36]);
+const colourOf = n => n === 0 ? 'green' : REDS.has(n) ? 'red' : 'black';
+const INK = {red: '#cf2027', black: '#18181d', green: '#12864a'};
+const SEG = TAU / 37;
+const range = (a, b) => Array.from({length: b - a + 1}, (_, i) => a + i);
+const num = (c, r) => 3 * c + 3 - r;                 // grid column 0-11 left to right, row 0-2 top to bottom
+const street = c => [num(c, 2), num(c, 1), num(c, 0)];
+const OUT = [
+  {name: '1 to 18', nums: range(1, 18)}, {name: 'Even', nums: range(1, 36).filter(n => n % 2 === 0)},
+  {name: 'Red', nums: [...REDS]}, {name: 'Black', nums: range(1, 36).filter(n => !REDS.has(n))},
+  {name: 'Odd', nums: range(1, 36).filter(n => n % 2)}, {name: '19 to 36', nums: range(19, 36)}];
+function mk(kind, nums, pay, name) {
+  nums = [...nums].sort((a, b) => a - b);
+  const lo = nums[0], hi = nums[nums.length - 1];
+  name = name || {straight: '' + lo, split: nums.join('/'), street: `Street ${lo}-${hi}`, line: `Six line ${lo}-${hi}`, corner: `Corner ${nums.join('/')}`, trio: nums.join('/')}[kind];
+  return {key: kind + ':' + nums.join(','), kind, nums, pay, name};
+}
+/* The board is measured in number boxes: the 12x3 grid of numbers spans x 0-12 and y 0-3, the zero sits at
+   x -1-0, the column bets at x 12-13, dozens at y 3-3.8 and the even-money bets at y 3.8-4.6.
+   A chip close to a line between numbers bets on both sides of it, as on a real table. */
+const EDGE = .2;
+function resolveBet(gx, gy) {
+  if (gx < -1 || gx >= 13 || gy < 0 || gy >= 4.6) return null;
+  if (gx >= 12) {
+    if (gy >= 3) return null;
+    const r = Math.floor(gy), m = [0, 2, 1][r];
+    return mk('column', range(1, 36).filter(n => n % 3 === m), 2, 'Column ' + [3, 2, 1][r]);
+  }
+  if (gy >= 3 + EDGE) {
+    if (gx < 0) return null;
+    if (gy < 3.8) { const d = Math.min(2, Math.floor(gx / 4)); return mk('dozen', range(d * 12 + 1, d * 12 + 12), 2, ['1st', '2nd', '3rd'][d] + ' 12'); }
+    const o = OUT[Math.min(5, Math.floor(gx / 2))];
+    return mk('even', o.nums, 1, o.name);
+  }
+  const lx = Math.round(gx), ly = Math.round(gy);
+  const nearV = Math.abs(gx - lx) < EDGE && lx >= 0 && lx <= 11;
+  const nearH = Math.abs(gy - ly) < EDGE && ly >= 1 && ly <= 3;
+  if (gx < 0 && !nearV) return gy < 3 ? mk('straight', [0], 35) : null;
+  const c = Math.min(11, Math.max(0, Math.floor(gx))), r = Math.min(2, Math.floor(gy));
+  if (nearV && nearH) {
+    if (ly === 3) return lx === 0 ? mk('four', [0, 1, 2, 3], 8, 'First four') : mk('line', [...street(lx - 1), ...street(lx)], 5);
+    return lx === 0 ? mk('trio', [0, num(0, ly - 1), num(0, ly)], 11) : mk('corner', [num(lx - 1, ly - 1), num(lx, ly - 1), num(lx - 1, ly), num(lx, ly)], 8);
+  }
+  if (nearV) return lx === 0 ? mk('split', [0, num(0, r)], 17) : mk('split', [num(lx - 1, r), num(lx, r)], 17);
+  if (nearH) return ly === 3 ? mk('street', street(c), 11) : mk('split', [num(c, ly - 1), num(c, ly)], 17);
+  return mk('straight', [num(c, r)], 35);
+}
+const onBoard = (gx, gy, e) => gy >= e && ((gy < 3 && gx >= -1 + e && gx < 13 - e) || (gy < 4.6 - e && gx >= e && gx < 12 - e));
+
+/* ---------- state ---------- */
+const S = {mode: 'attract', phase: 'bet', scene: null, W: 0, H: 0, pw: 640, ph: 360, Hm: null, Hi: null, ref: null, noise: null,
+           bets: {blue: [], yellow: []}, locked: null, result: null, score: {blue: 0, yellow: 0}, history: [],
+           wheel: {a: 0, w: 0, ball: null}, chips: [], demoColor: 'blue', wh: [], prompt: '', stableN: 0, lastSig: '',
+           shakyN: 0, tickN: 0, nextAuto: 4, diag: {waves: [], board: null}, teachState: null};
+const G = {};                                         // where everything is drawn, in canvas pixels
+const BX = gx => G.bx + (gx + 1) * G.u, BY = gy => G.by + gy * G.u;
+const DOTS = [[.2, .2], [.8, .2], [.8, .8], [.2, .8]];
+const WAIT = 1200;                      // ms for screen mirroring and camera exposure to settle
+let now = 0;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const note = msg => { statusEl.textContent = msg || ''; };
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const r2 = v => Math.round(v * 100) / 100;
+const angDiff = (a, b) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
+
+/* ---------- geometry ---------- */
+function homography(src, dst) {
+  const A = [];
+  for (let i = 0; i < 4; i++) {
+    const [x, y] = src[i], [u, v] = dst[i];
+    A.push([x, y, 1, 0, 0, 0, -u * x, -u * y, u], [0, 0, 0, x, y, 1, -v * x, -v * y, v]);
+  }
+  for (let c = 0; c < 8; c++) {
+    let p = c;
+    for (let r = c + 1; r < 8; r++) if (Math.abs(A[r][c]) > Math.abs(A[p][c])) p = r;
+    if (Math.abs(A[p][c]) < 1e-10) return null;
+    [A[c], A[p]] = [A[p], A[c]];
+    for (let r = 0; r < 8; r++) if (r !== c) {
+      const f = A[r][c] / A[c][c];
+      for (let k = c; k < 9; k++) A[r][k] -= f * A[c][k];
+    }
+  }
+  return A.map((row, i) => row[8] / row[i]);
+}
+function project(hm, x, y) {
+  const w = hm[6] * x + hm[7] * y + 1;
+  return [(hm[0] * x + hm[1] * y + hm[2]) / w, (hm[3] * x + hm[4] * y + hm[5]) / w];
+}
+const camPt = (x, y) => { const [u, v] = project(S.Hm, x / S.W, y / S.H); return [u * S.pw, v * S.ph]; };
+const scrPt = (u, v) => { const [x, y] = project(S.Hi, u / S.pw, v / S.ph); return [x * S.W, y * S.H]; };
+function setHi() { S.Hi = homography(DOTS.map(([x, y]) => project(S.Hm, x, y)), DOTS); }
+function cellCamArea(gx, gy) {                       // camera pixels covered by one number box at this spot
+  const a = camPt(BX(gx), BY(gy)), b = camPt(BX(gx + 1), BY(gy)), c = camPt(BX(gx), BY(gy + 1));
+  return Math.abs((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]));
+}
+
+/* Wheel on the left, betting table on the right, scores under the table and the camera view under the wheel.
+   While the camera is in use the layout ignores the settings sheet, so opening it never moves the table. */
+function layout() {
+  const r = cv.getBoundingClientRect(), dpr = Math.min(window.devicePixelRatio || 1, 2);
+  S.W = cv.width = Math.max(2, Math.round(r.width * dpr));
+  S.H = cv.height = Math.max(2, Math.round(r.height * dpr));
+  const F = {x: 0, y: 0, w: S.W, h: S.H};
+  if (!sheet.hidden && S.mode !== 'camera') {
+    const s = sheet.getBoundingClientRect();
+    if (s.width < r.width * .9) { F.x = s.right * dpr; F.w = S.W - F.x; } else F.h = s.top * dpr;
+  }
+  const m = G.m = Math.min(F.w, F.h) * .035, asp = S.pw / S.ph;
+  G.wide = F.w >= F.h * 1.15;
+  if (G.wide) {
+    G.R = Math.min(F.h * .6, F.w * .36) / 2;
+    G.cx = F.x + m * 1.5 + G.R * 1.1; G.cy = F.y + m * 1.2 + G.R * 1.1;
+    const bx0 = G.cx + G.R * 1.1 + m * 1.2, bw = F.x + F.w - m - bx0;
+    G.u = Math.min(bw / 14, F.h * .58 / 4.6); G.bx = bx0; G.by = F.y + m * 1.5;
+    const iy = G.by + 4.6 * G.u + m * 1.2;
+    G.info = {x: bx0, y: iy, w: bw, h: F.y + F.h - m - iy};
+    const py = G.cy + G.R * 1.1 + m, pw = Math.min(G.R * 2.2, (F.y + F.h - m * .6 - py) * asp);
+    G.panel = {x: G.cx - pw / 2, y: py, w: pw, h: pw / asp};
+  } else {
+    G.R = Math.min(F.w * .6, F.h * .34) / 2;
+    G.cx = F.x + F.w / 2; G.cy = F.y + m * 1.2 + G.R * 1.1;
+    G.u = Math.min((F.w - 2 * m) / 14, F.h * .26 / 4.6);
+    G.bx = F.x + (F.w - 14 * G.u) / 2; G.by = G.cy + G.R * 1.1 + m;
+    const iy = G.by + 4.6 * G.u + m;
+    G.info = {x: G.bx, y: iy, w: 14 * G.u, h: F.y + F.h - m - iy};
+    const pw = G.info.w * .4;
+    G.panel = {x: G.info.x + G.info.w - pw, y: F.y + F.h - m - pw / asp, w: pw, h: pw / asp};
+  }
+  buildArt();
+  const key = [S.W, S.H, G.bx, G.by, G.u, G.cx, G.cy, G.R].map(Math.round).join() + (S.Hm ? S.Hm.join() : '');
+  if (S.Hm && S.Hi && key !== S.prepKey) { S.prepKey = key; prep(); }
+}
+
+/* ---------- table art: painted once per layout ---------- */
+function rr(x, y, w, h, r) {
+  ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
+function dot(x, y, r, fill) { ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fillStyle = fill; ctx.fill(); }
+function ring(x, y, r, lw, col) { ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.lineWidth = lw; ctx.strokeStyle = col; ctx.stroke(); }
+function words(t, x, y, size, col, align, weight) {
+  ctx.font = `${weight || 800} ${size}px ${FONT}`; ctx.textAlign = align || 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = col; ctx.fillText(t, x, y);
+}
+function buildArt() {
+  const c = S.bg || (S.bg = document.createElement('canvas'));
+  c.width = S.W; c.height = S.H; ctx = c.getContext('2d');
+  const g = ctx.createRadialGradient(S.W * .55, S.H * .45, 0, S.W * .55, S.H * .45, Math.hypot(S.W, S.H) * .6);
+  g.addColorStop(0, '#1f7a4d'); g.addColorStop(1, '#0b3a24');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, S.W, S.H);
+  drawWheelBase(); drawBoard();
+  ctx = mainCtx;
+  buildRotor();
+}
+/* The wheel sits on a bright pad: a hand only shows up to the camera where the light on it is bright. */
+function drawWheelBase() {
+  const R = G.R, cx = G.cx, cy = G.cy;
+  rr(cx - R * 1.1, cy - R * 1.1, R * 2.2, R * 2.2, R * .14); ctx.fillStyle = '#efe5cf'; ctx.fill();
+  const w = ctx.createRadialGradient(cx, cy, R * .9, cx, cy, R);
+  w.addColorStop(0, '#c98f55'); w.addColorStop(1, '#ecc58e');
+  dot(cx, cy, R, w); ring(cx, cy, R * .985, R * .012, 'rgba(120,70,30,.5)');
+  dot(cx, cy, R * .93, '#f8f2e4');
+  const t = ctx.createRadialGradient(cx, cy, R * .8, cx, cy, R * .93);
+  t.addColorStop(0, 'rgba(160,130,90,.25)'); t.addColorStop(.4, 'rgba(255,255,255,0)'); t.addColorStop(1, 'rgba(160,130,90,.3)');
+  dot(cx, cy, R * .93, t);
+  for (let i = 0; i < 8; i++) {                    // brass deflectors on the ball track
+    const a = i / 8 * TAU + SEG / 2, x = cx + Math.cos(a) * R * .845, y = cy + Math.sin(a) * R * .845, s = R * .03;
+    ctx.save(); ctx.translate(x, y); ctx.rotate(a);
+    ctx.beginPath(); ctx.moveTo(-s * 1.4, 0); ctx.lineTo(0, -s * .7); ctx.lineTo(s * 1.4, 0); ctx.lineTo(0, s * .7); ctx.closePath();
+    ctx.fillStyle = '#e2b84f'; ctx.fill(); ctx.restore();
+  }
+}
+function buildRotor() {
+  const R = G.R, s = Math.ceil(R * 1.64), c = S.rotor || (S.rotor = document.createElement('canvas'));
+  c.width = c.height = s; ctx = c.getContext('2d'); ctx.translate(s / 2, s / 2);
+  const WHEEL = {red: '#d22a2f', black: '#222228', green: '#14894a'};
+  for (let i = 0; i < 37; i++) {
+    const a0 = (i - .5) * SEG, a1 = (i + .5) * SEG;
+    ctx.beginPath(); ctx.arc(0, 0, R * .8, a0, a1); ctx.arc(0, 0, R * .6, a1, a0, true); ctx.closePath();
+    ctx.fillStyle = WHEEL[colourOf(ORDER[i])]; ctx.fill();
+  }
+  ctx.strokeStyle = '#e8e2d4'; ctx.lineWidth = R * .008;
+  for (let i = 0; i < 37; i++) {
+    const a = (i - .5) * SEG;
+    ctx.beginPath(); ctx.moveTo(Math.cos(a) * R * .6, Math.sin(a) * R * .6); ctx.lineTo(Math.cos(a) * R * .69, Math.sin(a) * R * .69); ctx.stroke();
+  }
+  ring(0, 0, R * .69, R * .008, '#e8e2d4'); ring(0, 0, R * .8, R * .014, '#d8c194');
+  ctx.font = `800 ${R * .075}px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#fff';
+  for (let i = 0; i < 37; i++) { ctx.save(); ctx.rotate(i * SEG); ctx.translate(R * .745, 0); ctx.rotate(Math.PI / 2); ctx.fillText(ORDER[i], 0, R * .006); ctx.restore(); }
+  const g = ctx.createRadialGradient(0, 0, 0, 0, 0, R * .6);
+  g.addColorStop(0, '#fff2d2'); g.addColorStop(1, '#d9ae6e');
+  dot(0, 0, R * .6, g);
+  for (let k = 0; k < 4; k++) {
+    ctx.save(); ctx.rotate(k * Math.PI / 2); rr(R * .06, -R * .025, R * .38, R * .05, R * .025);
+    ctx.fillStyle = '#f2cf6a'; ctx.fill(); ctx.lineWidth = R * .006; ctx.strokeStyle = '#b8902f'; ctx.stroke();
+    dot(R * .44, 0, R * .035, '#f6d675'); ctx.restore();
+  }
+  dot(0, 0, R * .1, '#f6d675'); dot(0, 0, R * .06, '#c79a35'); dot(0, 0, R * .03, '#fff3c4');
+  ctx = mainCtx;
+}
+/* The betting cells are a light cream so chips keep their own colour under the projector. */
+function cellRect(n) {
+  if (n === 0) return [-1, 0, 1, 3];
+  const c = Math.floor((n - 1) / 3), r = 2 - (n - 1) % 3;
+  return [c, r, 1, 1];
+}
+function drawBoard() {
+  const u = G.u, CREAM = '#f4eedf', LINE = '#0f4a2e';
+  const cells = [[-1, 0, 1, 3]];
+  for (let c = 0; c < 12; c++) for (let r = 0; r < 3; r++) cells.push([c, r, 1, 1]);
+  for (let r = 0; r < 3; r++) cells.push([12, r, 1, 1]);
+  for (let d = 0; d < 3; d++) cells.push([d * 4, 3, 4, .8]);
+  for (let k = 0; k < 6; k++) cells.push([k * 2, 3.8, 2, .8]);
+  ctx.save(); ctx.shadowColor = 'rgba(0,0,0,.35)'; ctx.shadowBlur = u * .3; ctx.shadowOffsetY = u * .08;
+  ctx.fillStyle = CREAM; ctx.fillRect(BX(-1), BY(0), 14 * u, 3 * u); ctx.fillRect(BX(0), BY(3), 12 * u, 1.6 * u);
+  ctx.restore();
+  ctx.lineWidth = u * .05; ctx.strokeStyle = LINE;
+  for (const [x, y, w, h] of cells) { ctx.fillStyle = CREAM; ctx.fillRect(BX(x), BY(y), w * u, h * u); ctx.strokeRect(BX(x), BY(y), w * u, h * u); }
+  for (let n = 0; n <= 36; n++) {
+    const [x, y, w, h] = cellRect(n);
+    words('' + n, BX(x + w / 2), BY(y + h / 2) + u * .03, u * .44, INK[colourOf(n)]);
+  }
+  for (let r = 0; r < 3; r++) words('2 to 1', BX(12.5), BY(r + .5), u * .24, LINE);
+  ['1st 12', '2nd 12', '3rd 12'].forEach((t, d) => words(t, BX(d * 4 + 2), BY(3.4) + u * .03, u * .32, LINE));
+  ['1-18', 'EVEN', '', '', 'ODD', '19-36'].forEach((t, k) => t && words(t, BX(k * 2 + 1), BY(4.2) + u * .03, u * .3, LINE));
+  for (const [k, col] of [[2, INK.red], [3, INK.black]]) {
+    const x = BX(k * 2 + 1), y = BY(4.2), s = u * .3;
+    ctx.beginPath(); ctx.moveTo(x - s, y); ctx.lineTo(x, y - s * .55); ctx.lineTo(x + s, y); ctx.lineTo(x, y + s * .55); ctx.closePath();
+    ctx.fillStyle = col; ctx.fill();
+  }
+  ctx.lineWidth = u * .09; ctx.strokeRect(BX(-1), BY(0), 14 * u, 3 * u); ctx.strokeRect(BX(0), BY(3), 12 * u, 1.6 * u);
+}
+
+/* ---------- camera ---------- */
+async function startCamera() {
+  if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia)
+    throw new Error('The camera only works from an https address. Put this file on a web host and open that link on the phone.');
+  if (video.srcObject) video.srcObject.getTracks().forEach(t => t.stop());
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({audio: false,
+      video: {facingMode: {ideal: cfg.front ? 'user' : 'environment'}, width: {ideal: 1280}, height: {ideal: 720}}});
+  } catch (e) {
+    throw new Error(e && e.name === 'NotAllowedError'
+      ? 'The camera is blocked here. Allow it in the browser\'s site settings, then tap Start again.'
+      : 'No camera could be opened. Close other apps using it and tap Start again.');
+  }
+  video.srcObject = stream;
+  await video.play();
+  for (let i = 0; i < 40 && !video.videoWidth; i++) await sleep(50);
+  if (!video.videoWidth) throw new Error('The camera opened but sent no picture. Tap Start again.');
+  S.pw = 640; S.ph = Math.round(640 * video.videoHeight / video.videoWidth);
+  probe.width = S.pw; probe.height = S.ph;
+  ov.width = S.pw; ov.height = S.ph; S.ovImg = ovCtx.createImageData(S.pw, S.ph); S.ov = S.ovImg.data;
+}
+function grab() { pctx.drawImage(video, 0, 0, S.pw, S.ph); return pctx.getImageData(0, 0, S.pw, S.ph).data; }
+function lockCamera() {          // best effort: stop auto exposure and white balance drifting between frames
+  try {
+    const tr = video.srcObject.getVideoTracks()[0], caps = tr.getCapabilities ? tr.getCapabilities() : {}, adv = {};
+    if ((caps.exposureMode || []).includes('manual')) adv.exposureMode = 'manual';
+    if ((caps.whiteBalanceMode || []).includes('manual')) adv.whiteBalanceMode = 'manual';
+    if ((caps.focusMode || []).includes('manual')) adv.focusMode = 'manual';
+    if (Object.keys(adv).length) tr.applyConstraints({advanced: [adv]}).catch(() => {});
+  } catch (e) {}
+}
+function brightSpot(frame, dark) {
+  const n = S.pw * S.ph, diff = new Float32Array(n);
+  let max = 0;
+  for (let i = 0; i < n; i++) {
+    const k = i * 4, d = (frame[k] + frame[k + 1] + frame[k + 2]) - (dark[k] + dark[k + 1] + dark[k + 2]);
+    diff[i] = d; if (d > max) max = d;
+  }
+  if (max < 90) return null;
+  let sx = 0, sy = 0, c = 0;
+  for (let i = 0; i < n; i++) if (diff[i] >= max * .55) { sx += i % S.pw; sy += (i / S.pw) | 0; c++; }
+  if (c < 6 || c > n * .2) return null;
+  return [sx / c / S.pw, sy / c / S.ph];
+}
+async function calibrate() {
+  S.Hm = null;
+  S.scene = {type: 'black'}; await sleep(WAIT);
+  const dark = grab(), seen = [];
+  for (let i = 0; i < 4; i++) {
+    S.scene = {type: 'dot', i}; await sleep(WAIT);
+    const p = brightSpot(grab(), dark);
+    if (!p) throw new Error('The camera could not find the dots. Dim the room a little, check the camera sees the whole projected picture, and try again.');
+    seen.push(p);
+  }
+  let turn = 0;
+  for (let i = 0; i < 4; i++) {
+    const a = seen[i], b = seen[(i + 1) % 4], c = seen[(i + 2) % 4];
+    turn += Math.sign((b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]));
+  }
+  const hm = homography(DOTS, seen);
+  if (!hm || Math.abs(turn) !== 4) throw new Error('The dots were read in a jumbled order. Keep hands and chips off the table and try again.');
+  S.scene = {type: 'dot', p: [.5, .5]}; await sleep(WAIT);
+  const mid = brightSpot(grab(), dark), want = project(hm, .5, .5);
+  if (!mid || Math.hypot((mid[0] - want[0]) * S.pw, (mid[1] - want[1]) * S.ph) > S.pw * .04)
+    throw new Error('The line-up did not check out: the centre dot was not where the corners said it would be. Keep the phone completely still and hands out of view, then try again.');
+  S.Hm = hm; S.scene = null;
+}
+const orientKey = () => ((screen.orientation && screen.orientation.type) || (innerWidth > innerHeight ? 'landscape' : 'portrait')) + ':' + video.videoWidth + 'x' + video.videoHeight;
+
+/* ---------- what the camera reads ----------
+   Two places only: the wheel's bright pad (for the wave) and the betting cells (for chips). Nothing is
+   animated in either while bets are open, so each can be compared against a photo of it empty. */
+const NB = 24;                                        // the wheel pad is read as 24 bands, top to bottom
+function prep() {
+  const pw = S.pw, ph = S.ph;
+  const box = pts => {
+    let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+    for (const [x, y] of pts) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+    return {x0: clamp(Math.floor(x0) - 2, 0, pw - 1), y0: clamp(Math.floor(y0) - 2, 0, ph - 1), x1: clamp(Math.ceil(x1) + 2, 0, pw - 1), y1: clamp(Math.ceil(y1) + 2, 0, ph - 1)};
+  };
+  const b = box([[-1, 0], [13, 0], [13, 4.6], [-1, 4.6]].map(([gx, gy]) => camPt(BX(gx), BY(gy))));
+  const bw = b.x1 - b.x0 + 1, bh = b.y1 - b.y0 + 1, n = bw * bh;
+  const bb = S.bb = {x0: b.x0, y0: b.y0, bw, bh, n, gx: new Float32Array(n), gy: new Float32Array(n), ok: new Uint8Array(n), read: new Uint8Array(n)};
+  for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
+    const i = y * bw + x, [sx, sy] = scrPt(b.x0 + x + .5, b.y0 + y + .5), gx = (sx - G.bx) / G.u - 1, gy = (sy - G.by) / G.u;
+    bb.gx[i] = gx; bb.gy[i] = gy; bb.ok[i] = onBoard(gx, gy, .07) ? 1 : 0;
+  }
+  S.lab = new Uint8Array(n); S.lab2 = new Uint8Array(n); S.cnr = new Float32Array(n); S.cnb = new Float32Array(n);
+  S.comp = new Int32Array(n); S.stack = new Int32Array(n);
+  const L = G.R * 1.06, w = S.wbox = box([[-L, -L], [L, -L], [L, L], [-L, L]].map(([dx, dy]) => camPt(G.cx + dx, G.cy + dy)));
+  const wk = [], wb = [], wx = [];
+  for (let y = w.y0; y <= w.y1; y += 2) for (let x = w.x0; x <= w.x1; x += 2) {
+    const [sx, sy] = scrPt(x + .5, y + .5), dx = sx - G.cx, dy = sy - G.cy;
+    if (Math.abs(dx) >= L || Math.abs(dy) >= L) continue;
+    wk.push((y * pw + x) * 4); wb.push(Math.min(NB - 1, Math.floor((dy + L) / (2 * L) * NB))); wx.push(dx / G.R);
+  }
+  S.wk = Int32Array.from(wk); S.wb = Uint8Array.from(wb); S.wx = Float32Array.from(wx);
+  S.wbN = new Uint16Array(NB); for (const q of wb) S.wbN[q]++;
+  const gk = [];
+  for (let i = 0; i < n; i += 17) if (bb.ok[i]) gk.push(((b.y0 + ((i / bw) | 0)) * pw + b.x0 + i % bw) * 4);
+  for (let j = 0; j < wk.length; j += 9) gk.push(wk[j]);
+  S.gk = Int32Array.from(gk);
+  S.cell0 = cellCamArea(5.5, 1);
+}
+/* Each sample is averaged with four neighbours, which smooths out the rainbow patterns a camera sees on a screen. */
+function px(arr, k, out) {
+  const row = S.pw * 8, n = arr.length;
+  let r = 0, g = 0, b = 0, c = 0;
+  for (const o of [0, 8, -8, row, -row]) { const q = k + o; if (q < 0 || q >= n) continue; r += arr[q]; g += arr[q + 1]; b += arr[q + 2]; c++; }
+  out[0] = r / c; out[1] = g / c; out[2] = b / c; return out;
+}
+const P = [0, 0, 0], Q = [0, 0, 0];
+function diffD(r, g, b, br, bg, bb) {             // colour shift or brightness change, whichever is bigger (as in Block Table)
+  const t = r + g + b + 1, u = br + bg + bb + 1;
+  const dc = Math.hypot(r / t - br / u, g / t - bg / u), dl = Math.abs(Math.log((t + 40) / (u + 40)));
+  return Math.max(dc / .05, dl / .22);
+}
+/* Photograph the table several times: the average is the empty reference, and how much each spot
+   flickers sets how big a change it takes to count there. A box limits it to one part (the wheel). */
+async function learn(box) {
+  const n = 7, frames = [];
+  for (let i = 0; i < n; i++) { frames.push(grab()); await sleep(60); }
+  const W = S.pw, len = W * S.ph * 4;
+  if (!S.ref || S.ref.length !== len) { S.ref = new Float32Array(len); S.noise = new Float32Array(len / 4); box = null; }
+  const b = box || {x0: 0, y0: 0, x1: W - 1, y1: S.ph - 1};
+  for (let y = b.y0; y <= b.y1; y++) for (let x = b.x0; x <= b.x1; x++) {
+    const k = (y * W + x) * 4;
+    for (let c = 0; c < 3; c++) { let m = 0; for (const f of frames) m += f[k + c]; S.ref[k + c] = m / n; }
+  }
+  for (let y = b.y0; y <= b.y1; y++) for (let x = b.x0; x <= b.x1; x++) {
+    const k = (y * W + x) * 4; let v = 0;
+    px(S.ref, k, Q);
+    for (const f of frames) { px(f, k, P); const d = diffD(P[0], P[1], P[2], Q[0], Q[1], Q[2]); v += d * d; }
+    S.noise[k / 4] = Math.sqrt(v / n);
+  }
+  if (!box) markReadable();
+}
+/* Chip colours are only read where the empty cell was plain cream, not on printed numbers or lines. */
+function markReadable() {
+  const bb = S.bb, W = S.pw, rs = [[], [], []];
+  const kOf = i => ((bb.y0 + ((i / bb.bw) | 0)) * W + bb.x0 + i % bb.bw) * 4;
+  for (let i = 0; i < bb.n; i += 5) if (bb.ok[i]) { const k = kOf(i); for (let c = 0; c < 3; c++) rs[c].push(S.ref[k + c]); }
+  const med = rs.map(a => a.sort((p, q) => p - q)[a.length >> 1] || 1);
+  for (let i = 0; i < bb.n; i++) {
+    bb.read[i] = 0; if (!bb.ok[i]) continue;
+    const k = kOf(i); let ok = med[0] + med[1] + med[2] > 120;
+    for (let c = 0; c < 3 && ok; c++) { const q = S.ref[k + c] / med[c]; if (q < .72 || q > 1.3) ok = false; }
+    bb.read[i] = ok ? 1 : 0;
+  }
+}
+const GR = [new Float32Array(1024), new Float32Array(1024), new Float32Array(1024)];
+function gainOf(d) {                               // the camera's drift in brightness and tint, from the middle of many ratios
+  let m = 0;
+  for (let j = 0; j < S.gk.length && m < 1024; j++) {
+    const k = S.gk[j]; if (S.ref[k] + S.ref[k + 1] + S.ref[k + 2] < 90) continue;
+    for (let c = 0; c < 3; c++) GR[c][m] = (S.ref[k + c] + 1) / (d[k + c] + 1);
+    m++;
+  }
+  if (m < 20) return [1, 1, 1];
+  return GR.map(a => a.subarray(0, m).sort()[m >> 1]);
+}
+
+/* ---------- the wave ---------- */
+function readWheel(d, gain) {
+  const ref = S.ref, nz = S.noise, sens = cfg.sens / 100, cnt = S.wcnt || (S.wcnt = new Uint16Array(NB)), ov = S.ov, row = S.pw * 4;
+  cnt.fill(0);
+  let tot = 0, sx = 0;
+  for (let j = 0; j < S.wk.length; j++) {
+    const k = S.wk[j]; px(d, k, P); px(ref, k, Q);
+    const on = diffD(P[0] * gain[0], P[1] * gain[1], P[2] * gain[2], Q[0], Q[1], Q[2]) * sens > 1 + 4 * nz[k >> 2];
+    for (const o of [0, 4, row, row + 4]) { const q = k + o; if (q < ov.length) { ov[q] = 255; ov[q + 1] = 70; ov[q + 2] = 60; ov[q + 3] = on ? 210 : 0; } }
+    if (!on) continue;
+    cnt[S.wb[j]]++; tot++; sx += S.wx[j];
+  }
+  let top = -1, bot = -1;
+  for (let b = 0; b < NB; b++) if (cnt[b] >= Math.max(4, S.wbN[b] * .06)) { if (top < 0) top = b; bot = b; }
+  return {top: top < 0 ? null : (top + .5) / NB, bot: bot < 0 ? null : (bot + .5) / NB, frac: tot / (S.wk.length || 1), xc: tot ? sx / tot : 0};
+}
+/* A spin is the top edge of whatever is over the wheel moving down most of the way, within about two seconds.
+   Following the top edge works whichever side the arm comes from. */
+function waveLogic(wv) {
+  const t = performance.now() / 1000;
+  S.wv = wv;
+  if (wv.frac > .8) { S.wh = []; S.ep = null; return; }        // the whole wheel changed at once: the room light, not a hand
+  S.wh.push({t, top: wv.top, xc: wv.xc});
+  while (S.wh.length && S.wh[0].t < t - 2.5) S.wh.shift();
+  if (wv.top != null) {
+    const ep = S.ep || (S.ep = {t0: t, min: wv.top, travel: 0});
+    ep.last = t; ep.min = Math.min(ep.min, wv.top); ep.travel = Math.max(ep.travel, wv.top - ep.min);
+  } else if (S.ep && t - S.ep.last > .6) {
+    S.lastTravel = S.ep.travel;
+    S.diag.waves.unshift({travel: r2(S.ep.travel), secs: r2(S.ep.last - S.ep.t0), spun: false}); S.diag.waves.length = Math.min(10, S.diag.waves.length);
+    S.ep = null;
+  }
+  const seen = S.wh.filter(q => q.top != null); if (!seen.length) return;
+  const end = seen[seen.length - 1]; if (t - end.t > .45) return;
+  let st = null;
+  for (const q of seen) if (q.t >= end.t - 1.8 && q.t <= end.t - .1 && (!st || q.top < st.top)) st = q;
+  if (!st || st.top > .45) return;
+  const travel = end.top - st.top;
+  if (travel < cfg.wave / 100 || end.top < .6) return;
+  const span = seen.filter(q => q.t >= st.t && q.t <= end.t), xc = span.reduce((a, q) => a + q.xc, 0) / span.length;
+  const speed = travel / Math.max(.1, end.t - st.t);
+  S.diag.waves.unshift({travel: r2(travel), speed: r2(speed), side: r2(xc), spun: true}); S.diag.waves.length = Math.min(10, S.diag.waves.length);
+  S.lastTravel = travel; S.ep = null;
+  spinWheel(clamp(speed / 1.6, .6, 1.5), xc < -.15 ? -1 : 1);
+}
+
+/* ---------- the chips ----------
+   Each cell pixel that changed is sorted as blue, yellow, something else (a hand, a shadow), or unreadable
+   (it sits on a printed number or line; it takes the colour of the chip around it). Same-colour pixels are
+   grouped; each group is a pile of chips whose middle says which bet it is and whose size says how many. */
+function classifyBoard(d, gain) {
+  const bb = S.bb, lab = S.lab, ref = S.ref, nz = S.noise, sens = cfg.sens / 100, W = S.pw, PR = protos();
+  let used = 0, changed = 0;
+  for (let i = 0; i < bb.n; i++) {
+    lab[i] = 0;
+    if (!bb.ok[i]) continue;
+    used++;
+    const k = ((bb.y0 + ((i / bb.bw) | 0)) * W + bb.x0 + i % bb.bw) * 4;
+    px(d, k, P); P[0] *= gain[0]; P[1] *= gain[1]; P[2] *= gain[2]; px(ref, k, Q);
+    if (diffD(P[0], P[1], P[2], Q[0], Q[1], Q[2]) * sens <= 1 + 4 * nz[k >> 2]) continue;
+    changed++;
+    if (!bb.read[i]) { lab[i] = 4; continue; }
+    const r0 = P[0] / (Q[0] + 1), r1 = P[1] / (Q[1] + 1), r2_ = P[2] / (Q[2] + 1), s = r0 + r1 + r2_;
+    if (s < .6) { lab[i] = 5; continue; }          // much darker than the cell: a shadow
+    const nr = r0 / s, nb = r2_ / s; S.cnr[i] = nr; S.cnb[i] = nb;
+    let best = 3, bd = .11;
+    for (const [cls, p] of PR) { const dd = Math.hypot(nr - p[0], nb - p[1]); if (dd < bd) { bd = dd; best = cls; } }
+    lab[i] = best;
+  }
+  return {used, changed};
+}
+function interpretBoard() {
+  const bb = S.bb, n = bb.n, w = bb.bw, h = bb.bh, lab = S.lab, L2 = S.lab2;
+  const nb8 = (i, f) => { const x = i % w, y = (i / w) | 0; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { if (!dx && !dy) continue; const xx = x + dx, yy = y + dy; if (xx >= 0 && yy >= 0 && xx < w && yy < h) f(yy * w + xx); } };
+  for (let i = 0; i < n; i++) {
+    let v = lab[i];
+    if (v === 5) v = 3;
+    if (v === 4) { let a = 0, b = 0; nb8(i, q => { if (lab[q] === 1) a++; else if (lab[q] === 2) b++; }); v = a >= 2 && a >= b ? 1 : b >= 2 ? 2 : 3; }
+    L2[i] = v;
+  }
+  for (let i = 0; i < n; i++) {                     // a lone chip-coloured speck is noise
+    lab[i] = L2[i];
+    if (L2[i] === 1 || L2[i] === 2) { let s = 0; nb8(i, q => { if (L2[q] === L2[i]) s++; }); if (s < 2) lab[i] = 0; }
+  }
+  const comp = S.comp, stack = S.stack, blobs = [];
+  comp.fill(0);
+  for (let i = 0; i < n; i++) {
+    if (!lab[i] || comp[i]) continue;
+    const cls = lab[i], id = blobs.length + 1, bl = {cls, area: 0, sx: 0, sy: 0, snr: 0, snb: 0, nread: 0};
+    let sp = 0; stack[sp++] = i; comp[i] = id;
+    while (sp) {
+      const j = stack[--sp];
+      bl.area++; bl.sx += bb.gx[j]; bl.sy += bb.gy[j];
+      if (bb.read[j] && S.cnr[j]) { bl.snr += S.cnr[j]; bl.snb += S.cnb[j]; bl.nread++; }
+      nb8(j, q => { if (!comp[q] && lab[q] === cls) { comp[q] = id; stack[sp++] = q; } });
+    }
+    blobs.push(bl);
+  }
+  for (let i = 0; i < n; i++) S.cnr[i] = 0;
+  const ov = S.ov, W = S.pw, COL = [null, [60, 140, 255], [255, 215, 0], [255, 70, 60]];
+  for (let i = 0; i < n; i++) {
+    const k = ((bb.y0 + ((i / w) | 0)) * W + bb.x0 + i % w) * 4, c = COL[lab[i]];
+    if (c) { ov[k] = c[0]; ov[k + 1] = c[1]; ov[k + 2] = c[2]; ov[k + 3] = 220; } else ov[k + 3] = 0;
+  }
+  return blobs;
+}
+function readBets(blobs, st) {
+  const bets = {blue: new Map(), yellow: new Map()}, list = [];
+  let hand = false, biggestOther = 0;
+  for (const b of blobs) {
+    if (b.cls === 3) { biggestOther = Math.max(biggestOther, b.area); if (b.area > S.cell0 * .9) hand = true; continue; }
+    const gx = b.sx / b.area, gy = b.sy / b.area, one = Math.PI / 4 * (cfg.chip / 100) ** 2 * cellCamArea(gx - .5, gy - .5), cnt = b.area / one;
+    const color = b.cls === 1 ? 'blue' : 'yellow', bet = resolveBet(gx, gy);
+    list.push({color, gx: r2(gx), gy: r2(gy), px: b.area, chips: r2(cnt), nr: b.nread ? r2(b.snr / b.nread) : null, nb: b.nread ? r2(b.snb / b.nread) : null, bet: bet && bet.name});
+    if (cnt < .35) continue;
+    if (cnt > 14) { hand = true; continue; }       // far too big for chips: a blue sleeve, say
+    if (!bet) continue;
+    const m = bets[color], e = m.get(bet.key) || {bet, n: 0};
+    e.n += Math.max(1, Math.round(cnt)); m.set(bet.key, e);
+  }
+  const shaky = st.changed > st.used * .4;
+  S.diag.board = {used: st.used, changed: st.changed, hand, shaky, biggestOther, cell: Math.round(S.cell0), blobs: list.slice(0, 20)};
+  return {bets: {blue: [...bets.blue.values()], yellow: [...bets.yellow.values()]}, hand, shaky};
+}
+const sig = bets => COLORS.map(c => bets[c].map(e => e.bet.key + 'x' + e.n).sort().join(';')).join('|');
+function boardLogic(rb) {
+  if (rb.shaky) {                                 // most of the table changed: the room or the camera, not chips
+    if (++S.shakyN > 25) { S.shakyN = 0; relearnAll('The camera\'s view changed. Clear the chips off the table for a moment.'); }
+    S.stableN = 0; return;
+  }
+  S.shakyN = 0;
+  if (rb.hand) { S.stableN = 0; return; }          // a hand over the table: keep the last bets until it's gone
+  const s = sig(rb.bets);
+  if (s === S.lastSig) S.stableN++; else { S.stableN = 0; S.lastSig = s; }
+  if (S.stableN >= 2) S.bets = rb.bets;
+}
+
+/* ---------- reading loop ---------- */
+const ov = document.createElement('canvas'), ovCtx = ov.getContext('2d');
+function tick() {
+  if (S.mode !== 'camera' || S.scene || !sheet.hidden || !S.ref || !S.bb || S.busy) return;
+  if (S.calKey && orientKey() !== S.calKey) { begin(true); return; }   // the screen or camera turned: line up again
+  if (S.phase !== 'bet' && S.phase !== 'teach') return;
+  const d = grab(), gain = gainOf(d);
+  S.gain = gain.map(r2); S.tickN++;
+  if (S.phase === 'bet') {
+    waveLogic(readWheel(d, gain));
+    if (S.phase === 'bet' && S.tickN % 4 === 0) { const st = classifyBoard(d, gain); boardLogic(readBets(interpretBoard(), st)); }
+  } else if (S.tickN % 4 === 0) teachTick(d, gain);
+  ovCtx.putImageData(S.ovImg, 0, 0);
+}
+setInterval(tick, 70);
+async function relearnAll(msg) {
+  if (S.phase === 'learn') return;
+  S.phase = 'learn'; S.prompt = msg; speak(msg);
+  await sleep(WAIT + 3500);
+  try { await learn(); } catch (e) {}
+  S.bets = {blue: [], yellow: []}; S.stableN = 0; S.wh = []; S.phase = 'bet';
+}
+
+/* ---------- teaching the chip colours ---------- */
+async function teach() {
+  if (S.mode !== 'camera' || !S.Hm || S.busy || S.phase !== 'bet') return;
+  showSheet(false);
+  S.teachState = {step: 'clear', rings: [{c: 'blue', gx: 2.5, gy: 1.5, h: []}, {c: 'yellow', gx: 8.5, gy: 1.5, h: []}], gone: 0};
+  S.phase = 'learn'; S.prompt = 'Teaching the chips: clear the table for a moment';
+  await sleep(WAIT + 2000);
+  await learn();
+  S.teachState.step = 'place'; S.phase = 'teach';
+  S.prompt = 'Put one blue chip in the blue ring and one yellow chip in the yellow ring';
+  speak(S.prompt);
+}
+function teachTick(d, gain) {
+  const T = S.teachState, bb = S.bb, st = classifyBoard(d, gain);
+  for (const R of T.rings) {
+    let cnt = 0, nr = 0, nbl = 0, nread = 0;
+    for (let i = 0; i < bb.n; i++) {
+      const v = S.lab[i]; if (!v || Math.hypot(bb.gx[i] - R.gx, bb.gy[i] - R.gy) > .85) continue;
+      cnt++; if (v <= 3) { nr += S.cnr[i]; nbl += S.cnb[i]; nread++; }
+    }
+    R.cell = cellCamArea(R.gx - .5, R.gy - .5);
+    R.h.push({cnt, nr: nread ? nr / nread : 0, nb: nread ? nbl / nread : 0}); if (R.h.length > 6) R.h.shift();
+    R.now = cnt;
+    const spread = f => Math.max(...R.h.map(f)) - Math.min(...R.h.map(f));
+    R.ok = T.step === 'place' && R.h.length === 6 && R.h.every(q => q.cnt > R.cell * .2) &&
+           spread(q => q.nr) < .035 && spread(q => q.nb) < .035 && spread(q => q.cnt) < R.h[5].cnt * .3;
+    if (R.ok && !R.got) { R.got = {nr: R.h.reduce((a, q) => a + q.nr, 0) / 6, nb: R.h.reduce((a, q) => a + q.nb, 0) / 6, area: R.h.reduce((a, q) => a + q.cnt, 0) / 6}; tone(880); }
+  }
+  for (let i = 0; i < bb.n; i++) S.cnr[i] = 0;
+  S.diag.teach = T.rings.map(R => ({c: R.c, px: R.now, cell: Math.round(R.cell || 0), got: R.got || null}));
+  if (T.step === 'place' && T.rings.every(R => R.got)) {
+    const [b, y] = T.rings;
+    cfg.proto = {blue: [r2(b.got.nr), r2(b.got.nb)], yellow: [r2(y.got.nr), r2(y.got.nb)]};
+    const one = (b.got.area / b.cell + y.got.area / y.cell) / 2;
+    cfg.chip = clamp(Math.round(Math.sqrt(one / (Math.PI / 4)) * 20) * 5, 35, 120);
+    save(); syncKnobs();
+    T.step = 'remove'; S.prompt = 'Got them. Take both chips away'; speak(S.prompt);
+    [523, 659, 784].forEach((f, k) => tone(f, .1 * k));
+  } else if (T.step === 'remove') {
+    T.gone = T.rings.every(R => R.now < R.cell * .06) ? T.gone + 1 : 0;
+    if (T.gone >= 3) (async () => {
+      S.teachState = null; S.phase = 'learn'; S.prompt = 'Learning the empty table';
+      await sleep(WAIT); await learn();
+      S.bets = {blue: [], yellow: []}; S.stableN = 0; S.wh = []; S.phase = 'bet';
+    })();
+  }
+  if (st.changed > st.used * .5) T.rings.forEach(R => { R.h = []; });
+}
+
+/* ---------- sound ---------- */
+let ac = null;
+function initAudio() { try { ac = ac || new (window.AudioContext || window.webkitAudioContext)(); ac.resume(); } catch (e) {} }
+function tone(freq, delay = 0, len = .22, type = 'triangle', vol = .2) {
+  if (!ac || !cfg.sound || S.mode === 'attract') return;
+  const o = ac.createOscillator(), g = ac.createGain(), t = ac.currentTime + delay;
+  o.type = type; o.frequency.value = freq;
+  g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vol, t + .01); g.gain.exponentialRampToValueAtTime(.001, t + len);
+  o.connect(g).connect(ac.destination); o.start(t); o.stop(t + len + .05);
+}
+const click = () => tone(1900 + Math.random() * 600, 0, .04, 'square', .06);
+function speak(text) {
+  if (!cfg.sound || S.mode === 'attract' || !('speechSynthesis' in window)) return;
+  try { const u = new SpeechSynthesisUtterance(text); u.rate = .95; speechSynthesis.speak(u); } catch (e) {}
+}
+
+/* ---------- spinning ---------- */
+function spinWheel(k, dir) {
+  if (S.phase !== 'bet') return;
+  S.locked = {blue: S.bets.blue.slice(), yellow: S.bets.yellow.slice()};
+  S.phase = 'spin'; S.result = null; S.wh = []; S.ep = null;
+  const Wh = S.wheel;
+  Wh.w = dir * (1.1 + .7 * k);
+  Wh.ball = {a: -Math.PI / 2 + (Math.random() - .5) * .5, w: -dir * (10 + 4 * k + Math.random() * 3), r: .865, vr: 0, st: 'roll', hits: 0, need: 2 + Math.floor(Math.random() * 3), t: 0};
+  tone(330, 0, .3); tone(440, .08, .3);
+  speak('No more bets');
+}
+function stepWheel(dt) {
+  const Wh = S.wheel, b = Wh.ball;
+  Wh.a += Wh.w * dt;
+  if (b && b.st === 'seat') { const s = Math.sign(Wh.w), v = Math.abs(Wh.w) - .45 * dt; Wh.w = v > 0 ? s * v : 0; }
+  else Wh.w *= Math.exp(-dt * .05);
+  if (!b) return;
+  b.t += dt;
+  if (b.st === 'roll') {                           // round the track, slowing down
+    b.w -= Math.sign(b.w) * 1.7 * dt; b.w *= Math.exp(-.05 * dt);
+    b.a += b.w * dt;
+    if (Math.abs(b.w) < 3.2) b.st = 'drop';
+  } else if (b.st === 'drop') {                    // off the track, rattling over the frets
+    b.vr -= .9 * dt; b.r = Math.min(.8, b.r + b.vr * dt);
+    b.w += (Wh.w - b.w) * (1 - Math.exp(-dt * .4));
+    b.a += b.w * dt;
+    if (b.r < .7) {
+      if (b.hits < b.need) {
+        b.hits++; b.r = .7; b.vr = .2 + Math.random() * .25;
+        b.w = Wh.w + (b.w - Wh.w) * (.3 + Math.random() * .4) + (Math.random() - .5) * 2.5; click();
+      } else {
+        b.st = 'seat'; b.t = 0; b.p = ((Math.round((b.a - Wh.a) / SEG) % 37) + 37) % 37; click();
+      }
+    }
+  } else {                                         // in a pocket, carried round by the wheel
+    const e = angDiff(b.a, Wh.a + b.p * SEG) * Math.exp(-dt * 10);
+    b.a = Wh.a + b.p * SEG + e; b.r += (.645 - b.r) * (1 - Math.exp(-dt * 8));
+    if (b.t > .9 && S.phase === 'spin') showResult(ORDER[b.p]);
+  }
+}
+function showResult(n) {
+  S.phase = 'result';
+  const pay = {};
+  for (const c of COLORS) {
+    let stake = 0, back = 0;
+    for (const {bet, n: k} of S.locked[c]) { stake += k; if (bet.nums.includes(n)) back += k * (bet.pay + 1); }
+    pay[c] = {stake, back, net: back - stake}; S.score[c] += back - stake;
+  }
+  S.result = {n, t: now, pay};
+  S.history.unshift(n); S.history.length = Math.min(14, S.history.length);
+  [523, 659, 784, 1047].forEach((f, k) => tone(f, .1 * k, .35));
+  const said = [`${n}, ${colourOf(n)}.`];
+  for (const c of COLORS) if (pay[c].back) said.push(pay[c].net > 0 ? `${CHIP[c].name} wins ${pay[c].net}.` : `${CHIP[c].name} gets ${pay[c].back} back.`);
+  speak(said.join(' '));
+  if (S.mode !== 'camera') for (const ch of S.chips) { const bt = resolveBet(ch.gx, ch.gy); if (!bt || !bt.nums.includes(n)) ch.lose = now + 1.5; }
+}
+async function endRound() {
+  S.result = null; S.locked = null;
+  if (S.mode !== 'camera') { S.phase = 'bet'; S.chips = S.chips.filter(c => !c.lose); return; }
+  S.phase = 'learn'; S.prompt = 'Place your bets';
+  await sleep(WAIT);                                // the wheel came to rest somewhere new: photograph it again
+  try { await learn(S.wbox); } catch (e) {}
+  S.stableN = 0; S.wh = []; S.ep = null; S.phase = 'bet';
+}
+
+/* ---------- drawing each frame ---------- */
+function drawWheel() {
+  const R = G.R, s = S.rotor.width;
+  ctx.save(); ctx.translate(G.cx, G.cy); ctx.rotate(S.wheel.a); ctx.drawImage(S.rotor, -s / 2, -s / 2); ctx.restore();
+  const b = S.wheel.ball;
+  if (S.phase === 'result' && b && b.st === 'seat') {   // the winning pocket glows
+    const a = S.wheel.a + b.p * SEG;
+    ctx.beginPath(); ctx.arc(G.cx, G.cy, R * .7, a - SEG * .6, a + SEG * .6); ctx.lineWidth = R * .22;
+    ctx.strokeStyle = `rgba(255,220,90,${.35 + .2 * Math.sin(now * 6)})`; ctx.stroke();
+  }
+  if (b) {
+    const x = G.cx + Math.cos(b.a) * b.r * R, y = G.cy + Math.sin(b.a) * b.r * R, br = R * .034;
+    dot(x + br * .25, y + br * .35, br, 'rgba(0,0,0,.25)');
+    const g = ctx.createRadialGradient(x - br * .35, y - br * .35, br * .1, x, y, br);
+    g.addColorStop(0, '#fff'); g.addColorStop(1, '#cfcfd6'); dot(x, y, br, g);
+  }
+}
+function drawChip(x, y, r, c, alpha) {
+  ctx.globalAlpha = alpha;
+  dot(x + r * .08, y + r * .14, r, 'rgba(0,0,0,.3)');
+  dot(x, y, r, CHIP[c].face);
+  ctx.save(); ctx.translate(x, y); ctx.lineWidth = r * .22; ctx.strokeStyle = '#fff';
+  for (let i = 0; i < 6; i++) { ctx.beginPath(); ctx.arc(0, 0, r * .86, i * TAU / 6, i * TAU / 6 + .35); ctx.stroke(); }
+  ctx.restore();
+  ring(x, y, r * .58, r * .06, 'rgba(255,255,255,.8)'); dot(x, y, r * .5, CHIP[c].edge);
+  ctx.globalAlpha = 1;
+}
+function drawResultOnBoard() {
+  const n = S.result.n, u = G.u, p = .55 + .45 * Math.sin(now * 6);
+  ctx.lineWidth = u * .07; ctx.strokeStyle = `rgba(255,190,0,${.5 + .3 * p})`;
+  const glow = (x, y, w, h) => { rr(BX(x) + u * .06, BY(y) + u * .06, w * u - u * .12, h * u - u * .12, u * .12); ctx.stroke(); };
+  if (n > 0) {
+    const d = Math.floor((n - 1) / 12), parts = [[d * 4, 3, 4, .8], [12, 2 - (n - 1) % 3, 1, 1]];
+    OUT.forEach((o, k) => { if (o.nums.includes(n)) parts.push([k * 2, 3.8, 2, .8]); });
+    for (const q of parts) glow(...q);
+  }
+  const [x, y, w, h] = cellRect(n);
+  ctx.lineWidth = u * .16; ctx.strokeStyle = `rgba(255,200,0,${.75 + .25 * p})`; glow(x, y, w, h);
+}
+function drawRings() {
+  const T = S.teachState, u = G.u;
+  for (const R of T.rings) {
+    ring(BX(R.gx), BY(R.gy), u * .95, u * .1, CHIP[R.c].edge);
+    if (T.step !== 'clear' && R.got) ring(BX(R.gx), BY(R.gy), u * 1.12, u * .08, '#3ddc6b');
+  }
+}
+function promptText() {
+  if (S.mode === 'attract') return 'Roulette';
+  if (S.phase === 'learn' || S.phase === 'teach') return S.prompt;
+  if (S.phase === 'spin') return 'No more bets';
+  if (S.phase === 'result') return '';
+  return S.mode === 'demo' ? 'Tap the table to bet. Swipe down over the wheel to spin.' : 'Place your chips, then wave a hand down over the wheel';
+}
+function fitWords(t, x, y, size, maxW, col, align, weight) {
+  ctx.font = `${weight || 800} ${size}px ${FONT}`;
+  const w = ctx.measureText(t).width;
+  words(t, x, y, w > maxW ? size * maxW / w : size, col, align, weight);
+}
+function drawInfo() {
+  const I = G.info, W = G.wide ? I.w : I.w * .57, fs = Math.min(Math.min(S.W, S.H) * .045, I.h * .16);
+  let y = I.y + fs * .7;
+  if (S.phase === 'result' && S.result) {
+    const n = S.result.n, col = colourOf(n);
+    dot(I.x + fs * .9, y + fs * .2, fs * .95, INK[col]); ring(I.x + fs * .9, y + fs * .2, fs * .95, fs * .08, '#fff');
+    words('' + n, I.x + fs * .9, y + fs * .25, fs * 1.05, '#fff');
+    fitWords(col[0].toUpperCase() + col.slice(1), I.x + fs * 2.2, y + fs * .2, fs * 1.1, W - fs * 2.2, '#fff', 'left');
+  } else fitWords(promptText(), I.x, y, fs, W, '#fff', 'left');
+  y += fs * 1.5;
+  const gap = fs * .5, cw = (W - gap) / 2, ch = Math.min(fs * 4.6, I.y + I.h - y - fs * 1.8);
+  G.cards = {};
+  COLORS.forEach((c, i) => {
+    const x = I.x + i * (cw + gap), pick = S.mode === 'demo' && S.demoColor === c;
+    G.cards[c] = {x, y, w: cw, h: ch};
+    rr(x, y, cw, ch, fs * .35); ctx.fillStyle = 'rgba(0,0,0,.28)'; ctx.fill();
+    if (pick) { ctx.lineWidth = fs * .1; ctx.strokeStyle = CHIP[c].face; ctx.stroke(); }
+    drawChip(x + fs * .8, y + fs * .75, fs * .45, c, 1);
+    words(CHIP[c].name, x + fs * 1.45, y + fs * .75, fs * .75, '#fff', 'left');
+    const sc = S.score[c];
+    words((sc > 0 ? '+' : '') + sc, x + cw - fs * .5, y + fs * .75, fs * .75, sc > 0 ? '#7dffa8' : sc < 0 ? '#ffb0a8' : '#d8e3da', 'right');
+    const list = (S.phase === 'spin' || S.phase === 'result') && S.locked ? S.locked[c] : S.bets[c];
+    const chips = list.reduce((a, e) => a + e.n, 0);
+    let line1, line2 = '';
+    if (S.phase === 'result' && S.result) {
+      const p = S.result.pay[c];
+      line1 = !p.stake ? 'No bet' : p.net > 0 ? `Wins ${p.net}: collect ${p.back}` : p.back ? `Collect ${p.back} of ${p.stake}` : `Loses ${p.stake}`;
+    } else line1 = chips ? `${chips} chip${chips > 1 ? 's' : ''} bet` : 'No chips yet';
+    if (list.length) line2 = list.slice(0, 4).map(e => (e.n > 1 ? e.n + '× ' : '') + e.bet.name).join(', ') + (list.length > 4 ? ` +${list.length - 4} more` : '');
+    if (ch > fs * 2) fitWords(line1, x + fs * .5, y + fs * 1.85, fs * .55, cw - fs, '#eef2f8', 'left', 700);
+    if (ch > fs * 2.8 && line2) fitWords(line2, x + fs * .5, y + fs * 2.6, fs * .45, cw - fs, '#b9d3c2', 'left', 700);
+  });
+  y += ch + fs * .55;
+  const hr = fs * .42;
+  if (y + hr * 2 < I.y + I.h + hr) S.history.forEach((n, i) => {
+    const x = I.x + hr + i * hr * 2.5; if (x + hr > I.x + W) return;
+    dot(x, y + hr, hr, INK[colourOf(n)]); if (i === 0) ring(x, y + hr, hr * 1.12, hr * .14, '#ffd23f');
+    words('' + n, x, y + hr * 1.08, hr * 1.05, '#fff');
+  });
+}
+/* The live camera, with what it reads painted on: blue and yellow chips in their colours, anything else
+   that changed in red (a hand over the cells, or over the wheel), and the line a wave has to push down. */
+function drawPanel() {
+  if (S.mode !== 'camera' || !cfg.panel || !video.videoWidth || !S.Hm) return;
+  const P = G.panel, sx = P.w / S.pw, sy = P.h / S.ph, at = ([u, v]) => [P.x + u * sx, P.y + v * sy];
+  ctx.save(); rr(P.x, P.y, P.w, P.h, P.w * .03); ctx.clip();
+  ctx.globalAlpha = .75; ctx.drawImage(video, P.x, P.y, P.w, P.h); ctx.globalAlpha = 1;
+  if (S.ov) ctx.drawImage(ov, P.x, P.y, P.w, P.h);
+  ctx.lineWidth = Math.max(1.5, P.w * .004); ctx.strokeStyle = '#ffd23f';
+  const outline = pts => { ctx.beginPath(); pts.map(([x, y]) => at(camPt(x, y))).forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.closePath(); ctx.stroke(); };
+  outline([[BX(-1), BY(0)], [BX(13), BY(0)], [BX(13), BY(3)], [BX(12), BY(3)], [BX(12), BY(4.6)], [BX(0), BY(4.6)], [BX(0), BY(3)], [BX(-1), BY(3)]]);
+  const L = G.R * 1.06;
+  outline([[G.cx - L, G.cy - L], [G.cx + L, G.cy - L], [G.cx + L, G.cy + L], [G.cx - L, G.cy + L]]);
+  if (S.phase === 'bet') {                         // where a wave has to get to
+    const need = G.cy - L + 2 * L * Math.max(.6, .45 + cfg.wave / 100);
+    ctx.setLineDash([6, 5]); ctx.strokeStyle = '#7dffa8';
+    const [a, b] = [at(camPt(G.cx - L, need)), at(camPt(G.cx + L, need))];
+    ctx.beginPath(); ctx.moveTo(...a); ctx.lineTo(...b); ctx.stroke(); ctx.setLineDash([]);
+    if (S.wv && S.wv.top != null) {
+      const ty = G.cy - L + 2 * L * S.wv.top, [c, d] = [at(camPt(G.cx - L, ty)), at(camPt(G.cx + L, ty))];
+      ctx.lineWidth = Math.max(2.5, P.w * .008); ctx.strokeStyle = '#fff';
+      ctx.beginPath(); ctx.moveTo(...c); ctx.lineTo(...d); ctx.stroke();
+    }
+  }
+  const fs = Math.max(11, P.h * .075), db = S.diag.board, cur = S.ep ? S.ep.travel : S.lastTravel;
+  const txt = [`wave ${Math.round((cur || 0) * 100)}% of ${cfg.wave}%`, db ? (db.hand ? 'hand over the table' : db.shaky ? 'table changed a lot' : `${db.blobs.filter(b => b.chips >= .35).length} chip piles`) : ''].filter(Boolean).join('  ·  ');
+  ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fillRect(P.x, P.y + P.h - fs * 1.6, P.w, fs * 1.6);
+  words(txt, P.x + fs * .5, P.y + P.h - fs * .8, fs, '#fff', 'left', 700);
+  ctx.restore();
+}
+let last = 0;
+function frame(ms) {
+  now = ms / 1000; const dt = Math.min(.05, now - last); last = now; ctx = mainCtx;
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.fillStyle = '#000'; ctx.fillRect(0, 0, S.W, S.H);
+  const sc = S.scene;
+  try {
+    if (sc && sc.type === 'dot') { const [x, y] = sc.p || DOTS[sc.i]; dot(x * S.W, y * S.H, Math.min(S.W, S.H) * .06, '#fff'); }
+    else if (!sc) {
+      stepWheel(dt);
+      ctx.drawImage(S.bg, 0, 0);
+      drawWheel();
+      if (S.mode !== 'camera') {
+        S.chips = S.chips.filter(c => !c.lose || now < c.lose + .6);
+        for (const c of S.chips) drawChip(BX(c.gx), BY(c.gy), G.u * cfg.chip / 200, c.c, c.lose ? clamp(1 - (now - c.lose) / .6, 0, 1) : 1);
+        if (S.phase === 'bet') S.bets = betsFromChips();
+      }
+      if (S.phase === 'result' && S.result) drawResultOnBoard();
+      if (S.teachState) drawRings();
+      drawInfo(); drawPanel();
+      if (S.phase === 'result' && S.result && now - S.result.t > 6 && S.wheel.w === 0) endRound();
+      if (S.mode === 'attract' && S.phase === 'bet' && now > S.nextAuto) { S.nextAuto = now + 11; spinWheel(.8 + Math.random() * .5, Math.random() < .5 ? 1 : -1); }
+    }
+  } catch (e) { console.error(e); }
+  try { drawAim(); } catch (e) {}
+  requestAnimationFrame(frame);
+}
+function betsFromChips() {
+  const out = {blue: new Map(), yellow: new Map()};
+  for (const c of S.chips) {
+    if (c.lose) continue;
+    const bt = resolveBet(c.gx, c.gy); if (!bt) continue;
+    const e = out[c.c].get(bt.key) || {bet: bt, n: 0}; e.n++; out[c.c].set(bt.key, e);
+  }
+  return {blue: [...out.blue.values()], yellow: [...out.yellow.values()]};
+}
+
+/* ---------- controls ---------- */
+function showSheet(open) {
+  sheet.hidden = !open; $('gear').hidden = open;
+  const live = S.mode !== 'attract', cam = S.mode === 'camera';
+  $('resume').hidden = !live; $('howto').hidden = live; $('teach').hidden = !cam;
+  $('go').textContent = cam ? 'Line up camera again' : 'Start with camera';
+  $('go').classList.toggle('primary', !live); $('resume').classList.toggle('primary', live);
+  $('demo').hidden = S.mode === 'demo';
+  $('protoNote').textContent = cfg.proto ? `Chip colours taught on this phone (blue ${cfg.proto.blue.join(', ')}; yellow ${cfg.proto.yellow.join(', ')}).` : 'Chip colours: the built-in guess. Teach them for a better match.';
+  layout();
+}
+function backToPlay() { showSheet(false); S.stableN = 0; S.wh = []; S.ep = null; }
+function goBig() {
+  try { const p = document.documentElement.requestFullscreen && document.documentElement.requestFullscreen(); if (p) p.then(() => { try { screen.orientation.lock(screen.orientation.type).catch(() => {}); } catch (e) {} }).catch(() => {}); } catch (e) {}
+  try { if (navigator.wakeLock) navigator.wakeLock.request('screen').catch(() => {}); } catch (e) {}
+}
+function resetWheel() {
+  S.wheel.w = 0; S.wheel.ball = null; S.result = null; S.locked = null; S.phase = 'bet';
+  S.bets = {blue: [], yellow: []}; S.stableN = 0; S.lastSig = ''; S.wh = []; S.ep = null; S.teachState = null;
+}
+/* The line-up between projector and camera is saved, so a fixed rig only flashes the dots once. Block Table's is used if this game has none. */
+const LINEUP = 'rouletteLineup';
+function loadLineup() {
+  for (const key of [LINEUP, 'blockTableLineup']) {
+    try { const m = JSON.parse(localStorage.getItem(key) || 'null'); if (Array.isArray(m) && m.length === 8 && m.every(Number.isFinite)) return m; } catch (e) {}
+  }
+  return null;
+}
+async function begin(fresh) {
+  if (S.busy) return false;
+  S.busy = true; initAudio(); goBig(); note('Opening the camera…');
+  try {
+    await startCamera();
+    S.mode = 'camera'; S.chips = []; resetWheel(); note(''); showSheet(false);
+    S.phase = 'learn'; S.prompt = 'Lining up the camera';
+    const saved = fresh ? null : loadLineup();
+    if (saved) S.Hm = saved;
+    else { await calibrate(); try { localStorage.setItem(LINEUP, JSON.stringify(S.Hm)); } catch (e) {} }
+    setHi(); S.prepKey = null; layout();
+    S.prompt = 'Clear the chips off the table';
+    await sleep(WAIT + 1000);
+    await learn(); lockCamera(); S.calKey = orientKey();
+    resetWheel();
+    speak('Place your bets');
+    return true;
+  } catch (e) {
+    S.scene = null; S.Hm = null;
+    if (S.mode === 'camera') { S.mode = 'attract'; resetWheel(); }
+    showSheet(true); note(e.message); showAim();
+    return false;
+  } finally { S.busy = false; }
+}
+function showAim() { if (video.srcObject) $('aim').hidden = false; }
+const aimCv = $('aimView'), aimCtx = aimCv.getContext('2d');
+function drawAim() {
+  if ($('aim').hidden || sheet.hidden || !video.videoWidth) return;
+  const w = 480, h = Math.round(480 * video.videoHeight / video.videoWidth);
+  if (aimCv.width !== w || aimCv.height !== h) { aimCv.width = w; aimCv.height = h; }
+  aimCtx.drawImage(video, 0, 0, w, h);
+  if (!S.Hm) return;
+  aimCtx.lineWidth = 2.5; aimCtx.strokeStyle = '#ffd23f';
+  const to = (x, y) => { const [u, v] = project(S.Hm, x / S.W, y / S.H); return [u * w, v * h]; };
+  aimCtx.beginPath();
+  [[-1, 0], [13, 0], [13, 3], [12, 3], [12, 4.6], [0, 4.6], [0, 3], [-1, 3]].forEach(([gx, gy], i) => { const [u, v] = to(BX(gx), BY(gy)); i ? aimCtx.lineTo(u, v) : aimCtx.moveTo(u, v); });
+  aimCtx.closePath(); aimCtx.stroke();
+  aimCtx.beginPath();
+  for (let i = 0; i <= 48; i++) { const a = i / 48 * TAU, [u, v] = to(G.cx + Math.cos(a) * G.R, G.cy + Math.sin(a) * G.R); i ? aimCtx.lineTo(u, v) : aimCtx.moveTo(u, v); }
+  aimCtx.stroke();
+}
+$('aimBtn').onclick = async () => {
+  if (video.srcObject && video.srcObject.active) return showAim();
+  note('Opening the camera…');
+  try { await startCamera(); note(''); showAim(); } catch (e) { note(e.message); }
+};
+$('go').onclick = () => begin(true);
+addEventListener('keydown', e => { if ((e.key === 'c' || e.key === 'C') && S.mode === 'camera') begin(true); });
+$('demo').onclick = () => { initAudio(); S.mode = 'demo'; S.Hm = null; S.chips = []; S.score = {blue: 0, yellow: 0}; note(''); resetWheel(); showSheet(false); };
+$('resume').onclick = backToPlay;
+$('teach').onclick = teach;
+$('gear').onclick = () => showSheet(true);
+$('copy').onclick = async () => {
+  const text = JSON.stringify({game: 'roulette', when: new Date().toISOString(), mode: S.mode, phase: S.phase,
+    settings: {sens: cfg.sens, chip: cfg.chip, wave: cfg.wave}, chipColours: cfg.proto || 'built-in', gain: S.gain,
+    camera: video.videoWidth ? `${video.videoWidth}x${video.videoHeight}` : null, waves: S.diag.waves, board: S.diag.board,
+    teach: S.diag.teach || null, bets: COLORS.map(c => `${c}: ` + S.bets[c].map(e => e.n + 'x ' + e.bet.name).join(', '))}, null, 1);
+  try { await navigator.clipboard.writeText(text); note('Readings copied.'); } catch (e) { note('Could not copy here.'); console.log(text); }
+};
+
+/* Demo: tap the table to place or lift a chip, tap a player's card to switch colour, swipe down over the wheel to spin. */
+const toCanvas = e => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) / r.width * S.W, (e.clientY - r.top) / r.height * S.H]; };
+const inRect = (q, x, y) => q && x >= q.x && y >= q.y && x <= q.x + q.w && y <= q.y + q.h;
+cv.addEventListener('pointerdown', e => {
+  if (S.mode !== 'demo' || S.scene) return;
+  const [x, y] = toCanvas(e);
+  if (Math.abs(x - G.cx) < G.R * 1.1 && Math.abs(y - G.cy) < G.R * 1.1) { S.drag = {x0: x, y0: y, t0: performance.now()}; try { cv.setPointerCapture(e.pointerId); } catch (err) {} return; }
+  for (const c of COLORS) if (G.cards && inRect(G.cards[c], x, y)) { S.demoColor = c; return; }
+  const gx = (x - G.bx) / G.u - 1, gy = (y - G.by) / G.u;
+  if (S.phase !== 'bet' || !onBoard(gx, gy, 0)) return;
+  const hit = S.chips.findIndex(c => !c.lose && Math.hypot(c.gx - gx, c.gy - gy) < .3);
+  if (hit >= 0) S.chips.splice(hit, 1); else { S.chips.push({gx, gy, c: S.demoColor}); click(); }
+});
+cv.addEventListener('pointerup', e => {
+  const d = S.drag; S.drag = null;
+  if (!d || S.mode !== 'demo') return;
+  const [x, y] = toCanvas(e), dy = (y - d.y0) / (G.R * 2.12), secs = Math.max(.08, (performance.now() - d.t0) / 1000);
+  if (dy > .4) spinWheel(clamp(dy / secs / 1.6, .6, 1.5), (x + d.x0) / 2 < G.cx - G.R * .15 ? -1 : 1);
+});
+
+const knobs = {sens: v => v + '%', chip: v => v + '%', wave: v => v + '%'};
+function syncKnobs() { for (const k in knobs) { $(k).value = cfg[k]; $(k + 'Out').textContent = knobs[k](cfg[k]); } }
+for (const k in knobs) $(k).oninput = () => { cfg[k] = +$(k).value; $(k + 'Out').textContent = knobs[k](cfg[k]); save(); };
+syncKnobs();
+for (const k of ['panel', 'sound', 'front']) {
+  const el = $(k); el.checked = cfg[k];
+  el.onchange = () => { cfg[k] = el.checked; save(); };
+}
+addEventListener('resize', layout);
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(layout);
+window.roulette = S;          // handy for poking at state from the console
+showSheet(true);
+requestAnimationFrame(frame);
+if (location.hash === '#demo') $('demo').click();
+if (location.hash === '#kiosk') {          // a fixed rig: start by itself, reusing the saved line-up
+  document.documentElement.classList.add('kiosk');
+  (async () => { for (let i = 0; i < 8; i++) { if (await begin(false)) return; await sleep(4000); } })();
+}
+})();
+</script>
+</body>
+</html>

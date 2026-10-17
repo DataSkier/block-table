@@ -51,6 +51,21 @@ Things learned building it, which apply to any game that reads hands:
 - Anything drawn dark on a hand hides it: under dark light a hand looks just like the table. Draw on hands only with bright colours.
 - Don't draw right on a fingertip, and don't move things fast near one: the camera can't predict fast movement exactly, and the blur can join the finger and pull the "tip" outward.
 
+## Roulette
+
+A single-zero roulette table for two players: one bets with blue chips, the other with yellow. Chips go on numbers, on the lines between them (splits, corners, streets, six lines, the zero trios and first four) or on the outside bets, as on a real table. Wave a hand from the top of the wheel to the bottom to spin it; a faster wave spins harder, and the side of the wheel you wave over sets which way it turns. Each player's score is tracked, and after each spin the game says what to collect.
+
+How it reads the table, using what the other games learned:
+- After the line-up it photographs the empty table, and while bets are open nothing moves on the wheel or the betting cells, so anything that differs from that photo is a chip or a hand. The wheel is photographed again after every spin, because it stops in a new place.
+- The wheel sits on a bright pad and the betting cells are pale cream, because hands and chips only show up well under bright light.
+- A spin is the top edge of whatever is over the wheel moving down most of the way within about two seconds, so it works whichever side the arm comes from.
+- A chip's colour is judged by how each colour channel changed against the empty cell, which cancels out the projector's tint. Changes that look like skin, a shadow or something grey never count as chips, and while a hand is over the cells the last bets are kept.
+- Chips side by side are counted from the size of the pile, using *Chip size*. A stack seen from above looks like one chip, so spread chips out to bet more than one.
+- *Teach chip colours* (in settings, once the camera is running) asks for one chip of each colour in two rings, then learns their colours and size.
+- The live camera panel under the wheel shows what it reads: blue and yellow chips in their colours, anything else that changed in red, a white line at the top of a hand over the wheel, and a green dashed line where a wave has to reach. *Copy readings* copies the latest numbers as text.
+
+`#demo` lets you tap the table to bet (tap a player's card to switch colour) and swipe down over the wheel to spin. `#kiosk` works as in the other games, and reuses Block Table's line-up if Roulette hasn't saved one.
+
 ## Block Table: staying lined up
 
 After the four-dot line-up, Block Table keeps tracking crisp edges (pad borders, outlines, coral) in a dozen patches across the table and fits how the whole picture slid, twisted or tilted, so a phone that gets bumped keeps working without a new line-up. Detection pauses while the picture is still moving. If it can't find its place for about five seconds, it runs the four-dot line-up again by itself.
