@@ -1,0 +1,855 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Table Tune-Up</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;800&family=Nunito:wght@500;700&display=swap">
+<style>
+/* Layout: a full-bleed projected scene, with one setup sheet docked left (bottom on narrow screens). */
+:root{
+  --field:#000;
+  --sheet:#0f1524;
+  --sheet-edge:#27314b;
+  --well:#182036;
+  --ink:#eef2f8;
+  --ink-soft:#9ba7c2;
+  --sun:#ffd23f;
+  --sun-ink:#231a00;
+  --red:#ff4b4b;
+  --green:#3ddc6b;
+  --blue:#3a8dff;
+  --display:'Baloo 2','Trebuchet MS',system-ui,sans-serif;
+  --body:'Nunito',system-ui,-apple-system,'Segoe UI',sans-serif;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%;margin:0}
+body{background:var(--field);color:var(--ink);font:500 15px/1.5 var(--body);overflow:hidden;overscroll-behavior:none}
+#field{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+video,#probe{display:none}
+#sheet>*{flex-shrink:0}
+
+#sheet{
+  position:fixed;left:0;top:0;bottom:0;width:min(420px,46vw);
+  background:var(--sheet);border-right:1px solid var(--sheet-edge);
+  overflow-y:auto;display:flex;flex-direction:column;gap:18px;
+  padding:calc(20px + env(safe-area-inset-top,0px)) 20px calc(20px + env(safe-area-inset-bottom,0px));
+}
+@media (max-width:759px){
+  #sheet{top:auto;right:0;width:auto;max-height:70%;border-right:0;border-top:1px solid var(--sheet-edge);
+    padding-top:18px;border-radius:18px 18px 0 0}
+}
+h1{font:800 34px/1 var(--display);margin:0;letter-spacing:-.01em;text-wrap:balance}
+h1 span:nth-child(1){color:var(--red)}
+h1 span:nth-child(2){color:var(--sun)}
+h1 span:nth-child(3){color:var(--green)}
+h1 span:nth-child(4){color:var(--blue)}
+.lead{margin:6px 0 0;color:var(--ink-soft);max-width:40ch}
+h2{font:700 12px/1 var(--body);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-soft);margin:0 0 8px}
+ol{margin:0;padding-left:1.25em;display:flex;flex-direction:column;gap:6px}
+ol li::marker{color:var(--sun);font-weight:700}
+.actions{display:flex;flex-wrap:wrap;gap:10px}
+button{
+  font:700 15px/1 var(--body);color:var(--ink);background:var(--well);
+  border:1px solid var(--sheet-edge);border-radius:999px;padding:13px 18px;cursor:pointer;min-height:44px;
+}
+button.primary{background:var(--sun);color:var(--sun-ink);border-color:var(--sun);flex:1 1 180px}
+button:hover{filter:brightness(1.12)}
+button:focus-visible,input:focus-visible,summary:focus-visible,textarea:focus-visible{outline:3px solid var(--blue);outline-offset:2px}
+.home{color:var(--ink-soft);font-weight:700;text-decoration:none;align-self:flex-start;padding:6px 0}
+.home:hover,.home:focus-visible{color:var(--ink);text-decoration:underline}
+#status{margin:0;min-height:1.5em;color:var(--sun)}
+#status:empty{display:none}
+details{background:var(--well);border-radius:14px;padding:4px 14px}
+summary{cursor:pointer;font-weight:700;padding:10px 0}
+.knobs{display:flex;flex-direction:column;gap:14px;padding:4px 0 14px}
+.check{display:flex;gap:10px;align-items:center}
+.check input{width:20px;height:20px;flex:none;accent-color:var(--sun)}
+#gear{
+  position:fixed;right:calc(10px + env(safe-area-inset-right,0px));top:calc(10px + env(safe-area-inset-top,0px));
+  width:44px;height:44px;padding:0;background:rgba(20,40,60,.3);border-color:rgba(20,40,60,.25);color:rgba(255,255,255,.85);font-size:20px;
+}
+
+/* Report card: one row per measurement, with a verdict chip and, when needed, what to change. */
+#report{display:flex;flex-direction:column;gap:10px}
+#report .when{margin:0;color:var(--ink-soft);font-size:13px}
+.rows{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.rows li{background:var(--well);border-radius:12px;padding:10px 12px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;align-items:baseline}
+.rows b{font-weight:700}
+.rows .val{grid-column:1/-1;font-variant-numeric:tabular-nums}
+.rows .tip{grid-column:1/-1;color:var(--ink-soft);font-size:13px}
+.chip{font-size:12px;font-weight:700;border-radius:999px;padding:2px 9px;color:#04120a;background:var(--green)}
+.chip.ok{background:var(--sun);color:var(--sun-ink)}
+.chip.fix{background:var(--red);color:#fff}
+.chip.none{background:var(--sheet-edge);color:var(--ink-soft)}
+#view{display:block;width:100%;height:auto;border-radius:12px;background:#000}
+#report figcaption{color:var(--ink-soft);font-size:13px}
+#raw{width:100%;min-height:140px;background:#0a0f1c;color:var(--ink-soft);border:1px solid var(--sheet-edge);border-radius:10px;font:12px/1.4 ui-monospace,Consolas,monospace;padding:8px}
+</style>
+</head>
+<body>
+<canvas id="field" aria-label="Projection field"></canvas>
+<video id="cam" playsinline muted></video>
+<canvas id="probe"></canvas>
+
+<aside id="sheet">
+  <div>
+    <h1><span>Ta</span><span>bl</span><span>e&nbsp;</span><span>Tune-Up</span></h1>
+    <p class="lead">Six short scenes check how well the camera sees the table: the picture, the delay, the line-up, the colours and reading over moving pictures. Then fireflies land on your fingertips.</p>
+  </div>
+
+  <section id="howto">
+    <h2>Set up</h2>
+    <ol>
+      <li>Mirror this phone to the projector and aim the projector down at a plain, light table.</li>
+      <li>Prop the phone above the table so its back camera sees the whole projected picture.</li>
+      <li>Clear the table, keep hands off it, and tap Start. It takes about a minute.</li>
+    </ol>
+  </section>
+
+  <div class="actions">
+    <button class="primary" id="go" type="button">Start the tune-up</button>
+    <button id="resume" type="button" hidden>Back to the fireflies</button>
+  </div>
+  <a class="home" href="../../">&larr; All games</a>
+  <p id="status" role="status" aria-live="polite"></p>
+
+  <section id="report" hidden>
+    <h2>Results</h2>
+    <p class="when" id="when"></p>
+    <ul class="rows" id="rows"></ul>
+    <figure id="viewFig" hidden style="margin:0;display:flex;flex-direction:column;gap:6px">
+      <canvas id="view" width="480" height="270"></canvas>
+      <figcaption>The camera's view of the white picture. Green dots are where the line-up grid was found; red lines show each dot's leftover error, drawn 20 times longer than it really is.</figcaption>
+    </figure>
+    <div class="actions"><button id="copy" type="button">Copy results</button></div>
+    <details>
+      <summary>All the numbers</summary>
+      <textarea id="raw" readonly aria-label="Results as text"></textarea>
+    </details>
+  </section>
+
+  <details id="adjust">
+    <summary>Adjust</summary>
+    <div class="knobs">
+      <label class="check" for="sound"><input id="sound" type="checkbox"> Sounds and spoken steps</label>
+      <label class="check" for="front"><input id="front" type="checkbox"> Use the front camera</label>
+    </div>
+  </details>
+</aside>
+
+<button id="gear" type="button" aria-label="Open results and settings" hidden>&#9881;</button>
+
+<script>
+(() => {
+'use strict';
+const $ = id => document.getElementById(id);
+const cv = $('field'), ctx = cv.getContext('2d');
+const video = $('cam'), probe = $('probe'), pctx = probe.getContext('2d', {willReadFrequently: true});
+const half = document.createElement('canvas'), hctx = half.getContext('2d', {willReadFrequently: true});   // camera at half size, for colour and hands
+const tiny = document.createElement('canvas'), tctx = tiny.getContext('2d', {willReadFrequently: true});   // camera at 32x18, for timing flashes
+const shot = document.createElement('canvas'), sctx = shot.getContext('2d', {willReadFrequently: true});   // small copies of what was projected
+tiny.width = 32; tiny.height = 18;
+const sheet = $('sheet'), statusEl = $('status');
+const TAU = Math.PI * 2;
+
+/* ---------- settings and saved results (keys named after this game) ---------- */
+const cfg = {sound: true, front: false};
+try { Object.assign(cfg, JSON.parse(localStorage.getItem('tableTuneUpCfg') || '{}')); } catch (e) {}
+const saveCfg = () => { try { localStorage.setItem('tableTuneUpCfg', JSON.stringify(cfg)); } catch (e) {} };
+const RESULTS = 'tableTuneUp';
+let R = null;
+try { const s = JSON.parse(localStorage.getItem(RESULTS) || 'null'); if (s && s.results) R = s.results; } catch (e) {}
+
+/* ---------- state ---------- */
+const S = {W: 0, H: 0, scene: null, busy: false, pw: 640, ph: 360, gw: 320, gh: 180, sw: 320, sh: 180,
+           hist: [], rec: false, lag: null, wait: 1200, flies: [], tips: [], handView: [], handsOn: false};
+const DOTS = [[.2, .2], [.8, .2], [.8, .8], [.2, .8]];
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const note = msg => { statusEl.textContent = msg || ''; };
+const r1 = v => Math.round(v * 10) / 10, r3 = v => Math.round(v * 1000) / 1000;
+const pct = (arr, q) => { const a = Float32Array.from(arr).sort(); return a.length ? a[Math.min(a.length - 1, Math.floor(q * (a.length - 1)))] : 0; };
+const luma = (a, k) => .3 * a[k] + .59 * a[k + 1] + .11 * a[k + 2];
+
+function layout() {
+  const r = cv.getBoundingClientRect(), dpr = Math.min(window.devicePixelRatio || 1, 2);
+  S.W = cv.width = Math.max(2, Math.round(r.width * dpr));
+  S.H = cv.height = Math.max(2, Math.round(r.height * dpr));
+  S.sw = shot.width = 320; S.sh = shot.height = Math.max(2, Math.round(320 * S.H / S.W));
+}
+
+/* ---------- geometry ---------- */
+function solve8(N) {                               // Gauss-Jordan on an 8x9 augmented matrix
+  for (let c = 0; c < 8; c++) {
+    let p = c;
+    for (let r = c + 1; r < 8; r++) if (Math.abs(N[r][c]) > Math.abs(N[p][c])) p = r;
+    if (Math.abs(N[p][c]) < 1e-12) return null;
+    [N[c], N[p]] = [N[p], N[c]];
+    for (let r = 0; r < 8; r++) if (r !== c) { const f = N[r][c] / N[c][c]; for (let k = c; k < 9; k++) N[r][k] -= f * N[c][k]; }
+  }
+  return N.map((row, i) => row[8] / row[i]);
+}
+const hRows = (x, y, u, v) => [[x, y, 1, 0, 0, 0, -u * x, -u * y, u], [0, 0, 0, x, y, 1, -v * x, -v * y, v]];
+function homography(src, dst) { return solve8(src.flatMap((p, i) => hRows(p[0], p[1], dst[i][0], dst[i][1]))); }
+function fitHomography(obs) {                      // least squares over many points: [x, y, u, v]
+  const N = Array.from({length: 8}, () => new Array(9).fill(0));
+  for (const [x, y, u, v] of obs) for (const row of hRows(x, y, u, v))
+    for (let i = 0; i < 8; i++) { for (let j = 0; j < 8; j++) N[i][j] += row[i] * row[j]; N[i][8] += row[i] * row[8]; }
+  return solve8(N);
+}
+function project(hm, x, y) {
+  const w = hm[6] * x + hm[7] * y + 1;
+  return [(hm[0] * x + hm[1] * y + hm[2]) / w, (hm[3] * x + hm[4] * y + hm[5]) / w];
+}
+function invertH(h) {
+  const [a, b, c, d, e, f, g, k] = h;
+  const A = e - f * k, B = -(d - f * g), C = d * k - e * g, det = a * A + b * B + c * C;
+  const m = [A, -(b - c * k), b * f - c * e, B, a - c * g, -(a * f - c * d), C, -(a * k - b * g), a * e - b * d].map(v => v / det);
+  return m.slice(0, 8).map(v => v / m[8]);
+}
+
+/* ---------- picture helpers: blobs, distance to the edge, outlines ---------- */
+function components(bin, w, h) {
+  const lab = new Int32Array(w * h), sizes = [0], stack = new Int32Array(w * h);
+  let id = 0;
+  for (let i = 0; i < w * h; i++) if (bin[i] && !lab[i]) {
+    id++; let sp = 0, n = 0; stack[sp++] = i; lab[i] = id;
+    while (sp) {
+      const p = stack[--sp], x = p % w; n++;
+      if (x > 0 && bin[p - 1] && !lab[p - 1]) { lab[p - 1] = id; stack[sp++] = p - 1; }
+      if (x < w - 1 && bin[p + 1] && !lab[p + 1]) { lab[p + 1] = id; stack[sp++] = p + 1; }
+      if (p >= w && bin[p - w] && !lab[p - w]) { lab[p - w] = id; stack[sp++] = p - w; }
+      if (p < w * h - w && bin[p + w] && !lab[p + w]) { lab[p + w] = id; stack[sp++] = p + w; }
+    }
+    sizes.push(n);
+  }
+  return {lab, sizes};
+}
+function chamfer(bin, w, h) {                      // distance to the nearest outside pixel, 3 per step (4 diagonally)
+  const d = new Uint16Array(w * h), at = (x, y) => (x < 0 || y < 0 || x >= w || y >= h) ? 0 : d[y * w + x];
+  for (let i = 0; i < w * h; i++) d[i] = bin[i] ? 60000 : 0;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const i = y * w + x; if (d[i]) d[i] = Math.min(d[i], at(x - 1, y) + 3, at(x, y - 1) + 3, at(x - 1, y - 1) + 4, at(x + 1, y - 1) + 4); }
+  for (let y = h - 1; y >= 0; y--) for (let x = w - 1; x >= 0; x--) { const i = y * w + x; if (d[i]) d[i] = Math.min(d[i], at(x + 1, y) + 3, at(x, y + 1) + 3, at(x + 1, y + 1) + 4, at(x - 1, y + 1) + 4); }
+  return d;
+}
+function fillHoles(b, w, h) {                     // anything outside the blob that the border can't reach is a hole
+  const seen = new Uint8Array(w * h), stack = [];
+  for (let x = 0; x < w; x++) stack.push(x, (h - 1) * w + x);
+  for (let y = 0; y < h; y++) stack.push(y * w, y * w + w - 1);
+  while (stack.length) {
+    const p = stack.pop(); if (seen[p] || b[p]) continue; seen[p] = 1;
+    const x = p % w;
+    if (x > 0) stack.push(p - 1); if (x < w - 1) stack.push(p + 1); if (p >= w) stack.push(p - w); if (p < w * h - w) stack.push(p + w);
+  }
+  for (let i = 0; i < w * h; i++) if (!seen[i]) b[i] = 1;
+}
+const DX = [1, 1, 0, -1, -1, -1, 0, 1], DY = [0, 1, 1, 1, 0, -1, -1, -1];
+function trace(b, w, h) {                          // outer outline of a blob, walking with the outside on the left
+  let s = -1; for (let i = 0; i < w * h; i++) if (b[i]) { s = i; break; }
+  if (s < 0) return [];
+  const sx = s % w, sy = (s / w) | 0, out = [];
+  let x = sx, y = sy, dir = 0, first = -1;
+  while (out.length < w * h * 2) {
+    let nd = -1;
+    for (let k = 0; k < 8; k++) { const d = (dir + 6 + k) % 8, nx = x + DX[d], ny = y + DY[d]; if (nx >= 0 && ny >= 0 && nx < w && ny < h && b[ny * w + nx]) { nd = d; break; } }
+    if (nd < 0) { out.push([x, y]); break; }
+    if (x === sx && y === sy) { if (first < 0) first = nd; else if (nd === first) break; }
+    out.push([x, y]); x += DX[nd]; y += DY[nd]; dir = nd;
+  }
+  return out;
+}
+
+/* ---------- camera ---------- */
+async function startCamera() {
+  if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia)
+    throw new Error('The camera only works from an https address. Put this file on a web host and open that link on the phone.');
+  if (video.srcObject) video.srcObject.getTracks().forEach(t => t.stop());
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({audio: false,
+      video: {facingMode: {ideal: cfg.front ? 'user' : 'environment'}, width: {ideal: 1280}, height: {ideal: 720}}});
+  } catch (e) {
+    throw new Error(e && e.name === 'NotAllowedError'
+      ? 'The camera is blocked here. Allow it in the browser\'s site settings, then tap Start again.'
+      : 'No camera could be opened. Close other apps using it and tap Start again.');
+  }
+  video.srcObject = stream;
+  await video.play();
+  for (let i = 0; i < 40 && !video.videoWidth; i++) await sleep(50);
+  if (!video.videoWidth) throw new Error('The camera opened but sent no picture. Tap Start again.');
+  S.pw = probe.width = 640; S.ph = probe.height = Math.round(640 * video.videoHeight / video.videoWidth);
+  S.gw = half.width = 320; S.gh = half.height = Math.round(S.ph / 2);
+}
+function grab() { pctx.drawImage(video, 0, 0, S.pw, S.ph); return pctx.getImageData(0, 0, S.pw, S.ph).data; }
+function grabHalf() { hctx.drawImage(video, 0, 0, S.gw, S.gh); return hctx.getImageData(0, 0, S.gw, S.gh).data; }
+const nextCamFrame = () => new Promise(res => video.requestVideoFrameCallback
+  ? video.requestVideoFrameCallback(() => res(performance.now())) : setTimeout(() => res(performance.now()), 33));
+async function avgHalf(n) {
+  const acc = new Float32Array(S.gw * S.gh * 4);
+  for (let i = 0; i < n; i++) { await nextCamFrame(); const d = grabHalf(); for (let k = 0; k < d.length; k++) acc[k] += d[k] / n; }
+  return acc;
+}
+async function lockCamera() {      // best effort: stop exposure, white balance and focus drifting; report what the phone allows
+  const info = {locked: []};
+  try {
+    const tr = video.srcObject.getVideoTracks()[0], caps = tr.getCapabilities ? tr.getCapabilities() : {}, adv = {};
+    info.label = tr.label || '';
+    info.modes = {exposure: caps.exposureMode || [], whiteBalance: caps.whiteBalanceMode || [], focus: caps.focusMode || []};
+    for (const k of ['exposureMode', 'whiteBalanceMode', 'focusMode']) if ((caps[k] || []).includes('manual')) adv[k] = 'manual';
+    if (Object.keys(adv).length) { await tr.applyConstraints({advanced: [adv]}); info.locked = Object.keys(adv).map(k => k.replace('Mode', '')); }
+  } catch (e) { info.error = String((e && e.message) || e); }
+  return info;
+}
+function brightSpot(frame, dark) {
+  const n = S.pw * S.ph, diff = new Float32Array(n);
+  let max = 0;
+  for (let i = 0; i < n; i++) {
+    const k = i * 4, d = (frame[k] + frame[k + 1] + frame[k + 2]) - (dark[k] + dark[k + 1] + dark[k + 2]);
+    diff[i] = d; if (d > max) max = d;
+  }
+  if (max < 90) return null;
+  let sx = 0, sy = 0, c = 0;
+  for (let i = 0; i < n; i++) if (diff[i] >= max * .55) { sx += i % S.pw; sy += (i / S.pw) | 0; c++; }
+  if (c < 6 || c > n * .2) return null;
+  return [sx / c / S.pw, sy / c / S.ph];
+}
+
+/* ---------- 1. Lights on: where the picture lands in the camera, and how bright ---------- */
+async function stageLights() {
+  S.scene = {type: 'fill', c: 255}; await sleep(1600);
+  R.camera.lock = await lockCamera();      // locked on full white, so nothing projected later is brighter than this
+  await sleep(400);
+  S.scene = {type: 'fill', c: 0}; await sleep(S.wait);
+  S.B = await avgHalf(4);
+  S.scene = {type: 'fill', c: 255}; await sleep(S.wait);
+  S.Wt = await avgHalf(4);
+  const w = S.gw, h = S.gh, n = w * h, diff = new Float32Array(n);
+  for (let i = 0; i < n; i++) diff[i] = luma(S.Wt, i * 4) - luma(S.B, i * 4);
+  const top = pct(diff, .95);
+  if (top < 20) throw new Error('The camera can\'t see the projector\'s light. Check the camera faces the table and the projector is on.');
+  const bin = new Uint8Array(n); for (let i = 0; i < n; i++) bin[i] = diff[i] > top * .3 ? 1 : 0;
+  const {lab, sizes} = components(bin, w, h);
+  const big = sizes.indexOf(Math.max(...sizes.slice(1)));
+  S.mask = new Uint8Array(n); for (let i = 0; i < n; i++) S.mask[i] = lab[i] === big ? 1 : 0;
+  S.maskDT = chamfer(S.mask, w, h);
+  let inMask = 0, border = 0, borderIn = 0, sat = 0; const bright = [], room = [];
+  for (let i = 0; i < n; i++) {
+    const x = i % w, y = (i / w) | 0, edge = x === 0 || y === 0 || x === w - 1 || y === h - 1;
+    if (edge) { border++; if (S.mask[i]) borderIn++; }
+    if (!S.mask[i]) continue;
+    inMask++; bright.push(diff[i]); room.push(luma(S.B, i * 4));
+    const k = i * 4; if (S.Wt[k] >= 250 || S.Wt[k + 1] >= 250 || S.Wt[k + 2] >= 250) sat++;
+  }
+  const b50 = pct(bright, .5), room50 = pct(room, .5);
+  R.lights = {fill: r3(inMask / n), cutOff: r3(borderIn / border), saturated: r3(sat / inMask),
+              bright: r1(b50), room: r1(room50), contrast: r1((b50 + room50) / Math.max(1, room50)), even: r3(pct(bright, .1) / Math.max(1, pct(bright, .9)))};
+}
+
+/* ---------- 2. Lightning: how long a change takes to get from the screen to the camera ---------- */
+async function stageLightning() {
+  const lum = () => { tctx.drawImage(video, 0, 0, 32, 18); const d = tctx.getImageData(0, 0, 32, 18).data; let s = 0; for (let k = 0; k < d.length; k += 4) s += d[k] + d[k + 1] + d[k + 2]; return s / (d.length * .75); };
+  const level = async c => { S.scene = {type: 'fill', c}; await sleep(900); let s = 0; for (let i = 0; i < 4; i++) { await nextCamFrame(); s += lum(); } return s / 4; };
+  const lo = await level(0), hi = await level(255), mid = (lo + hi) / 2;
+  if (hi - lo < 6) throw new Error('The flashes were too faint for the camera. Dim the room a little and try again.');
+  const lags = [], gaps = [];
+  let up = false;                                  // the picture is white now, so the first flash goes dark
+  for (let i = 0; i < 8; i++) {
+    const sc = {type: 'fill', c: up ? 255 : 0, timed: true}; S.scene = sc;
+    const t0 = performance.now(); let last = 0, got = null;
+    while (performance.now() - t0 < 4000) {
+      const tf = await nextCamFrame();
+      if (last) gaps.push(tf - last); last = tf;
+      const v = lum();
+      if (sc.shownAt && (up ? v > mid : v < mid)) { got = tf - sc.shownAt; break; }
+    }
+    if (got == null) throw new Error('The camera never saw a flash arrive. Keep the camera on the projected picture and try again.');
+    lags.push(got); up = !up;
+    await sleep(250 + Math.random() * 400);       // irregular gaps, so the timing can't lock onto the camera's frame rhythm
+  }
+  const med = pct(lags, .5);
+  S.lag = med; S.wait = Math.round(Math.max(350, med * 1.2 + 300));
+  R.delay = {ms: Math.round(med), fastest: Math.round(Math.min(...lags)), slowest: Math.round(Math.max(...lags)), cameraFps: r1(1000 / Math.max(1, pct(gaps, .5)))};
+}
+
+/* ---------- 3. Fireflies land: the four-dot line-up, then a grid of dots to measure and refine it ---------- */
+async function stageFireflies() {
+  S.scene = {type: 'fill', c: 0}; await sleep(S.wait);
+  const dark = grab(), seen = [];
+  for (let i = 0; i < 4; i++) {
+    S.scene = {type: 'dot', p: DOTS[i]}; await sleep(S.wait);
+    const p = brightSpot(grab(), dark);
+    if (!p) throw new Error('The camera could not find the dots. Dim the room a little, check the camera sees the whole projected picture, and try again.');
+    seen.push(p);
+  }
+  let turn = 0;
+  for (let i = 0; i < 4; i++) {
+    const a = seen[i], b = seen[(i + 1) % 4], c = seen[(i + 2) % 4];
+    turn += Math.sign((b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]));
+  }
+  const h4 = homography(DOTS, seen);
+  if (!h4 || Math.abs(turn) !== 4) throw new Error('The dots were read in a jumbled order. Keep hands off the table and try again.');
+  const GX = 7, GY = 5, pts = [];
+  for (let j = 0; j < GY; j++) for (let i = 0; i < GX; i++) pts.push([.08 + .84 * i / (GX - 1), .1 + .8 * j / (GY - 1)]);
+  S.scene = {type: 'grid', pts}; await sleep(S.wait);
+  const f1 = grab(); await nextCamFrame(); const f2 = grab();
+  const pw = S.pw, ph = S.ph, cam = p => { const [u, v] = project(h4, p[0], p[1]); return [u * pw, v * ph]; };
+  const a = cam(pts[0]), b = cam(pts[1]), c = cam(pts[GX]);
+  const rad = Math.max(3, Math.round(.4 * Math.min(Math.hypot(b[0] - a[0], b[1] - a[1]), Math.hypot(c[0] - a[0], c[1] - a[1]))));
+  let obs = [];
+  for (const p of pts) {
+    const [cx, cy] = cam(p); let mx = 0;
+    const x0 = Math.max(0, Math.round(cx - rad)), x1 = Math.min(pw - 1, Math.round(cx + rad)), y0 = Math.max(0, Math.round(cy - rad)), y1 = Math.min(ph - 1, Math.round(cy + rad));
+    const d = (x, y) => { const k = (y * pw + x) * 4; return (f1[k] + f1[k + 1] + f1[k + 2] + f2[k] + f2[k + 1] + f2[k + 2]) / 2 - (dark[k] + dark[k + 1] + dark[k + 2]); };
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) mx = Math.max(mx, d(x, y));
+    if (mx < 60) continue;
+    let sx = 0, sy = 0, sw = 0;
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { const v = d(x, y) - mx * .5; if (v > 0) { sx += x * v; sy += y * v; sw += v; } }
+    obs.push([p[0], p[1], sx / sw / pw, sy / sw / ph]);
+  }
+  if (obs.length < 12) throw new Error('Too few of the grid dots were found. Make sure the camera sees the whole picture and try again.');
+  let hm = fitHomography(obs);
+  const resid = (H, o) => { const [u, v] = project(H, o[0], o[1]); return Math.hypot((u - o[2]) * pw, (v - o[3]) * ph); };
+  const cut = Math.max(2, 3 * pct(obs.map(o => resid(hm, o)), .5));
+  const kept = obs.filter(o => resid(hm, o) <= cut);
+  if (kept.length >= 12 && kept.length < obs.length) { obs = kept; hm = fitHomography(obs); }
+  if (!hm) throw new Error('The line-up grid did not add up. Keep the phone still and try again.');
+  const res = obs.map(o => resid(hm, o)), fourDot = obs.map(o => resid(h4, o));
+  const camW = Math.hypot((project(hm, 1, .5)[0] - project(hm, 0, .5)[0]) * pw, (project(hm, 1, .5)[1] - project(hm, 0, .5)[1]) * ph);
+  const toScreen = S.W / camW, rms = Math.sqrt(res.reduce((s, v) => s + v * v, 0) / res.length), blockEdge = Math.min(S.W, S.H) * .0475;
+  R.lineup = {found: `${obs.length}/${pts.length}`, rmsCamPx: r1(rms), maxCamPx: r1(Math.max(...res)), rmsScreenPx: r1(rms * toScreen),
+              blockEdgePct: Math.round(rms * toScreen / blockEdge * 100), fourDotMaxScreenPx: r1(Math.max(...fourDot) * toScreen), camPxPerScreenPx: r3(1 / toScreen)};
+  S.Hm = hm; S.Hi = invertH(hm);
+  S.gridView = obs.map(o => { const [u, v] = project(hm, o[0], o[1]); return [o[2], o[3], u, v]; });
+  // Which projected pixel each half-size camera sample shows, inside the picture and away from its edge.
+  const w = S.gw, h = S.gh, n = w * h;
+  S.map = new Int32Array(n).fill(-1);
+  for (let i = 0; i < n; i++) {
+    if (S.maskDT[i] < 6) continue;
+    const [x, y] = project(S.Hi, (i % w + .5) / w, (((i / w) | 0) + .5) / h);
+    if (x < 0 || y < 0 || x >= 1 || y >= 1) continue;
+    S.map[i] = ((y * S.sh | 0) * S.sw + (x * S.sw | 0)) * 4;
+  }
+}
+
+/* ---------- 4. Rainbow: learn how projected colours come out in the camera ----------
+   Black and white are learned per camera pixel (that holds the room light, the lens and the hot spot).
+   Grey steps give each camera channel's response curve; pure red, green and blue give how the
+   projector's colours mix into the camera's. A projector with a white boost (most DLPs) shows up as
+   white being brighter than red + green + blue. */
+const LEVELS = [0, 64, 128, 192, 255];
+const LIN = Float32Array.from({length: 256}, (_, v) => Math.pow(v / 255, 2.2));
+async function stageRainbow() {
+  const take = async c => { S.scene = {type: 'fill', c}; await sleep(S.wait); return avgHalf(3); };
+  S.B = await take(0);
+  const greys = [];
+  for (const l of [64, 128, 192]) greys.push(await take(l));
+  S.Wt = await take(255);
+  const prim = [];
+  for (const c of ['#f00', '#0f0', '#00f']) prim.push(await take(c));
+  const idx = [];
+  for (let i = 0; i < S.gw * S.gh; i += 3) if (S.map[i] >= 0) { const k = i * 4; if (S.Wt[k] - S.B[k] > 20 && S.Wt[k + 1] - S.B[k + 1] > 20 && S.Wt[k + 2] - S.B[k + 2] > 20) idx.push(k); }
+  if (idx.length < 200) throw new Error('The picture is too dim in the camera to learn its colours. Dim the room or brighten the projector.');
+  const norm = (A, c) => pct(idx.map(k => (A[k + c] - S.B[k + c]) / (S.Wt[k + c] - S.B[k + c])), .5);
+  const T = [0, 1, 2].map(c => { const t = [0, ...greys.map(G => norm(G, c)), 1]; for (let i = 1; i < t.length; i++) t[i] = Math.max(t[i], t[i - 1] + 1e-3); return t; });
+  const curve = (c, l) => { const s = Math.min(3, Math.max(0, Math.floor(l / 64))), a = LEVELS[s], b = LEVELS[s + 1]; return T[c][s] + (T[c][s + 1] - T[c][s]) * Math.min(1, (l - a) / (b - a)); };
+  const level = (c, n) => { for (let s = 0; s < 4; s++) if (n <= T[c][s + 1] || s === 3) { const f = (n - T[c][s]) / (T[c][s + 1] - T[c][s]); return LEVELS[s] + Math.max(0, Math.min(1, f)) * (LEVELS[s + 1] - LEVELS[s]); } };
+  const M = [0, 1, 2].map(c => prim.map(P => Math.pow(level(c, Math.max(0, norm(P, c))) / 255, 2.2)));
+  const w = M.map(row => 1 - row[0] - row[1] - row[2]);
+  const OUT = [0, 1, 2].map(c => Float32Array.from({length: 1281}, (_, j) => curve(c, Math.min(255, 255 * Math.pow(j / 1024, 1 / 2.2)))));
+  S.model = {M, w, OUT};
+  R.colour = {curves: T.map(t => t.map(r3)), mix: M.map(row => row.map(r3)), whiteBoost: r3((w[0] + w[1] + w[2]) / 3)};
+}
+function predictN(scr, q, out) {                   // normalised camera response (0 = black, 1 = white) to one projected pixel
+  const {M, w, OUT} = S.model, L0 = LIN[scr[q]], L1 = LIN[scr[q + 1]], L2 = LIN[scr[q + 2]], mn = Math.min(L0, L1, L2);
+  for (let c = 0; c < 3; c++) { const e = M[c][0] * L0 + M[c][1] * L1 + M[c][2] * L2 + w[c] * mn; const j = (e * 1024) | 0; out[c] = OUT[c][j < 0 ? 0 : j > 1280 ? 1280 : j]; }
+}
+
+/* ---------- reading over moving pictures ----------
+   Every frame drawn is kept for a moment as a small copy. Each camera frame is compared with the copy
+   that was on screen one delay earlier (or a neighbour, if that matches better), through the colour model.
+   Whatever the model can't explain is something on the table. */
+function record() {
+  sctx.drawImage(cv, 0, 0, S.sw, S.sh);
+  const t = performance.now();
+  S.hist.push({t, d: sctx.getImageData(0, 0, S.sw, S.sh).data});
+  while (S.hist.length > 2 && S.hist[0].t < t - (S.lag || 1000) - 500) S.hist.shift();
+}
+const PN = [0, 0, 0];
+function gradMap(d) {
+  const w = S.sw, h = S.sh, g = new Float32Array(w * h), L = i => luma(d, i * 4);
+  for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) { const i = y * w + x; g[i] = Math.abs(L(i + 1) - L(i - 1)) + Math.abs(L(i + w) - L(i - w)); }
+  return g;
+}
+function readFrame(tg, cam) {
+  const H = S.hist; if (H.length < 3) return null;
+  const target = tg - S.lag, n = S.gw * S.gh, B = S.B, Wt = S.Wt, map = S.map;
+  let bi = 0; for (let i = 1; i < H.length; i++) if (Math.abs(H[i].t - target) < Math.abs(H[bi].t - target)) bi = i;
+  let best = H[bi], bestE = Infinity, bc = bi;
+  for (let ci = Math.max(0, bi - 2); ci <= Math.min(H.length - 1, bi + 2); ci++) {   // the copy that fits best
+    let e = 0;
+    for (let i = 0; i < n; i += 7) { const q = map[i]; if (q < 0) continue; predictN(H[ci].d, q, PN); const k = i * 4; for (let c = 0; c < 3; c++) e += Math.abs(cam[k + c] - B[k + c] - (Wt[k + c] - B[k + c]) * PN[c]); }
+    if (e < bestE) { bestE = e; best = H[ci]; bc = ci; }
+  }
+  const before = H[Math.max(0, bc - 2)].d, after = H[Math.min(H.length - 1, bc + 2)].d;   // what was changing on screen right then
+  const ratios = [[], [], []];                    // overall exposure drift, per channel
+  for (let i = 0; i < n; i += 5) {
+    const q = map[i]; if (q < 0) continue; predictN(best.d, q, PN); const k = i * 4;
+    for (let c = 0; c < 3; c++) { const p = (Wt[k + c] - B[k + c]) * PN[c]; if (p > 25) ratios[c].push((cam[k + c] - B[k + c]) / p); }
+  }
+  const gain = ratios.map(a => a.length > 50 ? Math.max(.5, Math.min(2, pct(a, .5))) : 1);
+  const res = S.res && S.res.length === n ? S.res : (S.res = new Float32Array(n)), grd = S.grd && S.grd.length === n ? S.grd : (S.grd = new Float32Array(n)), g = gradMap(best.d);
+  const shade = S.shade && S.shade.length === n ? S.shade : (S.shade = new Uint8Array(n)), mot = S.mot && S.mot.length === n ? S.mot : (S.mot = new Float32Array(n));
+  for (let i = 0; i < n; i++) {
+    const q = map[i]; if (q < 0) { res[i] = -1; continue; }
+    predictN(best.d, q, PN); const k = i * 4; let r = 0, lit = 0, got = 0;
+    for (let c = 0; c < 3; c++) {
+      const p = (Wt[k + c] - B[k + c]) * PN[c] * gain[c], o = cam[k + c] - B[k + c];
+      r = Math.max(r, Math.abs(o - p)); lit += p; got += o;
+    }
+    res[i] = r; grd[i] = g[q >> 2]; mot[i] = Math.abs(luma(after, q) - luma(before, q));
+    shade[i] = lit > 90 && got < lit * .3 ? 1 : 0;   // should be well lit but gets almost none of the projector's light: a shadow
+  }
+  return {res, grd, shade, mot, gain, off: best.t - target};
+}
+
+/* ---------- 5. Magic window: an empty table under a busy moving picture sets how big a difference counts ---------- */
+async function stageMagic() {
+  S.hist = []; S.rec = true; S.scene = {type: 'magic'};
+  await sleep(S.lag + 700);
+  const flat = [], all = [], grads = [], gains = [], offs = [], ms = [];
+  const t0 = performance.now();
+  while (performance.now() - t0 < 6000) {
+    const tg = await nextCamFrame(), cam = grabHalf(), t1 = performance.now();
+    const f = readFrame(tg, cam); if (!f) continue;
+    ms.push(performance.now() - t1); gains.push(...f.gain); offs.push(f.off);
+    for (let i = 0; i < f.res.length; i += 3) { const r = f.res[i]; if (r < 0) continue; all.push(r); grads.push(f.grd[i]); if (f.grd[i] < 12) flat.push(r); }
+    await sleep(50);
+  }
+  if (all.length < 1000) throw new Error('The camera stopped sending pictures. Tap Start again.');
+  const t = Math.max(14, pct(flat, .99) * 1.3);
+  const need = all.map((r, i) => r > t ? (r - t) / Math.max(1, grads[i]) : 0);
+  const kG = Math.max(.15, pct(need, .997) * 1.2);
+  let over = 0; for (let i = 0; i < all.length; i++) if (all[i] > t + kG * grads[i]) over++;
+  S.thr = {t, kG};
+  R.window = {typicalError: r1(pct(all, .5)), error95: r1(pct(all, .95)), flatError95: r1(pct(flat, .95)), threshold: r1(t), edgeAllowance: r3(kG),
+              falseAlarms: r3(over / all.length), exposureDrift: r3(Math.max(...gains.map(g => Math.abs(g - 1)))), timingOffsetMs: Math.round(pct(offs, .5)),
+              frames: ms.length, msPerFrame: r1(pct(ms, .5))};
+}
+
+/* ---------- 6. Firefly hands: find hands, then fingertips, while fireflies keep flying everywhere ---------- */
+function findHands(f) {
+  const w = S.gw, h = S.gh, n = w * h, {t, kG} = S.thr, hit = new Uint8Array(n);
+  let used = 0, cnt = 0, shadow = 0;
+  for (let i = 0; i < n; i++) {
+    if (f.res[i] < 0) continue; used++;
+    if (f.res[i] > t + kG * f.grd[i] + .6 * f.mot[i]) {   // where the picture was changing fast, it takes a bigger difference
+      cnt++;
+      if (f.shade[i]) shadow++; else hit[i] = 1;  // shadows are left out, so they can't join fingers together
+    }
+  }
+  if (cnt > used * .35) return null;              // half the table changed at once: the room or the camera changed, not a hand
+  S.shadowShare = cnt ? shadow / cnt : 0;
+  const clean = new Uint8Array(n);
+  for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+    const i = y * w + x; let s = 0;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) s += hit[i + dy * w + dx];
+    clean[i] = s >= 5 ? 1 : 0;
+  }
+  const {lab, sizes} = components(clean, w, h), hands = [];
+  for (let id = 1; id < sizes.length; id++) {
+    if (sizes[id] < Math.max(30, used * .003)) continue;
+    let x0 = w, y0 = h, x1 = 0, y1 = 0;
+    for (let i = 0; i < n; i++) if (lab[i] === id) { const x = i % w, y = (i / w) | 0; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+    const bw = x1 - x0 + 3, bh = y1 - y0 + 3, b = new Uint8Array(bw * bh);
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) if (lab[y * w + x] === id) b[(y - y0 + 1) * bw + (x - x0 + 1)] = 1;
+    fillHoles(b, bw, bh);                          // something drawn dark on the hand leaves a hole: the hand is still there
+    const dt = chamfer(b, bw, bh);
+    let pi = 0; for (let i = 1; i < dt.length; i++) if (dt[i] > dt[pi]) pi = i;
+    const r = dt[pi] / 3, px = pi % bw, py = (pi / bw) | 0;
+    const hand = {palm: toScreen(px - 1 + x0, py - 1 + y0), r, tips: [], area: sizes[id]};
+    hands.push(hand);
+    if (r < 3) continue;                         // too thin to be a hand: a block or a pencil
+    const c = trace(b, bw, bh), N = c.length, k = Math.max(3, Math.round(r * .9));
+    if (N < k * 6) continue;
+    const dist = c.map(([x, y]) => Math.hypot(x - px, y - py)), cand = [];
+    for (let i = 0; i < N; i++) {
+      if (dist[i] < r * 1.6) continue;
+      const gx = c[i][0] - 1 + x0, gy = c[i][1] - 1 + y0;
+      if (S.maskDT[gy * w + gx] < 15) continue;   // the arm, where it crosses the edge of the picture
+      let top = true;
+      for (let j = 1; j <= k && top; j++) if (dist[(i + j) % N] > dist[i] || dist[(i - j + N) % N] > dist[i]) top = false;
+      if (!top) continue;
+      const a = c[(i - k + N) % N], bq = c[(i + k) % N], ax = a[0] - c[i][0], ay = a[1] - c[i][1], bx = bq[0] - c[i][0], by = bq[1] - c[i][1];
+      if ((ax * bx + ay * by) / (Math.hypot(ax, ay) * Math.hypot(bx, by) || 1) < .3) continue;   // not a sharp enough point
+      cand.push([i, dist[i], gx, gy]);
+    }
+    cand.sort((p, q) => q[1] - p[1]);
+    for (const p of cand) {
+      if (hand.tips.length >= 5) break;
+      if (hand.tips.some(q => { const d = Math.abs(q.i - p[0]); return Math.min(d, N - d) < k * 1.5; })) continue;
+      hand.tips.push({i: p[0], at: toScreen(p[2], p[3])});
+    }
+  }
+  return hands;
+}
+function toScreen(gx, gy) { const [x, y] = project(S.Hi, (gx + .5) / S.gw, (gy + .5) / S.gh); return [x * S.W, y * S.H]; }
+async function stageHands() {
+  S.scene = {type: 'hands'}; S.rec = true; S.handsOn = true;
+  R.hands = R.hands || {looks: 0, sawHand: 0, mostTips: 0, ignored: 0, msPerLook: 0};
+  const run = S.handRun = (S.handRun || 0) + 1, ms = [];
+  let lastN = -1, same = 0, said = -1;
+  while (S.handsOn && S.handRun === run) {
+    const tg = await nextCamFrame(), cam = grabHalf(), t1 = performance.now();
+    const f = readFrame(tg, cam);
+    const hands = f ? findHands(f) : null;
+    ms.push(performance.now() - t1); if (ms.length > 100) ms.shift();
+    R.hands.looks++; R.hands.msPerLook = r1(pct(ms, .5));
+    if (!hands) { R.hands.ignored++; await sleep(30); continue; }
+    S.handView = hands.filter(hd => hd.r >= 3);
+    S.tips = S.handView.flatMap(hd => hd.tips.map(({at: [x, y]}) => {        // each tip, plus which way the finger points
+      const dx = x - hd.palm[0], dy = y - hd.palm[1], d = Math.hypot(dx, dy) || 1; return [x, y, dx / d, dy / d];
+    }));
+    const tipsN = S.tips.length;
+    if (S.handView.length) { R.hands.sawHand++; S.everHand = true; R.hands.shadowShare = r3(S.shadowShare); }
+    R.hands.mostTips = Math.max(R.hands.mostTips, tipsN);
+    same = tipsN === lastN ? same + 1 : 0; lastN = tipsN;
+    if (same === 5 && tipsN > 0 && tipsN !== said) { said = tipsN; speak(tipsN === 1 ? 'One finger' : tipsN + ' fingers'); }
+    if (tipsN === 0 && same === 5) said = -1;
+    await sleep(30);
+  }
+}
+
+/* ---------- the run ---------- */
+const STAGES = [
+  {title: 'Lights on', sub: 'Keep the table clear', run: stageLights},
+  {title: 'Lightning', sub: 'Timing the flashes', run: stageLightning},
+  {title: 'Fireflies land', sub: 'Lining up the camera', run: stageFireflies},
+  {title: 'Rainbow', sub: 'Learning the colours', run: stageRainbow},
+  {title: 'Magic window', sub: 'Hands off the table', run: stageMagic},
+  {title: 'Firefly hands', sub: 'Spread a hand flat on the table', run: stageHands}
+];
+async function run() {
+  if (S.busy) return;
+  S.busy = true; S.handsOn = false; initAudio(); goBig(); note('Opening the camera…');
+  R = {when: new Date().toISOString(), screen: {w: S.W, h: S.H, dpr: Math.min(window.devicePixelRatio || 1, 2)}, browser: navigator.userAgent};
+  S.lag = null; S.wait = 1200; S.model = null; S.thr = null; S.everHand = false; S.gridView = null;
+  try {
+    await startCamera();
+    R.camera = {w: video.videoWidth, h: video.videoHeight};
+    note(''); showSheet(false);
+    for (let i = 0; i < STAGES.length; i++) {
+      R.reached = STAGES[i].title;
+      S.scene = {type: 'card', i}; speak(STAGES[i].title + '. ' + STAGES[i].sub + '.'); tone(523 + i * 80, 0, .3);
+      await sleep(2600);
+      if (i === STAGES.length - 1) saveResults();
+      await STAGES[i].run();
+      if (i < STAGES.length - 1) tone(784, 0, .2);
+    }
+  } catch (e) {
+    S.scene = null; S.rec = false; S.handsOn = false;
+    R.error = e.message; saveResults();
+    showSheet(true); note(e.message);
+  } finally { S.busy = false; }
+}
+function saveResults() { try { localStorage.setItem(RESULTS, JSON.stringify({results: R, lineup: S.Hm || null, delayMs: S.lag})); } catch (e) {} }
+
+/* ---------- sound ---------- */
+let ac = null;
+function initAudio() { try { ac = ac || new (window.AudioContext || window.webkitAudioContext)(); ac.resume(); } catch (e) {} }
+function tone(freq, delay = 0, len = .22) {
+  if (!ac || !cfg.sound) return;
+  const o = ac.createOscillator(), g = ac.createGain(), t = ac.currentTime + delay;
+  o.type = 'triangle'; o.frequency.value = freq;
+  g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.18, t + .02); g.gain.exponentialRampToValueAtTime(.001, t + len);
+  o.connect(g).connect(ac.destination); o.start(t); o.stop(t + len + .05);
+}
+function speak(text) {
+  if (!cfg.sound || !('speechSynthesis' in window)) return;
+  try { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text); u.rate = .95; u.pitch = 1.2; speechSynthesis.speak(u); } catch (e) {}
+}
+
+/* ---------- drawing ---------- */
+const LANTERN = ['#ff6b8b', '#ffb547', '#5ec8ff', '#8c7bff', '#4fd39a', '#ff8a4c', '#3a7bd5'];
+function meadow(t, busy) {
+  const W = S.W, H = S.H, m = Math.min(W, H), g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#dfe9ff'); g.addColorStop(.55, '#fff1dc'); g.addColorStop(1, '#ffd7b8');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  for (const [k, col, amp, ph] of [[.62, '#cfe8c6', .06, 0], [.74, '#b6dcae', .05, 2], [.86, '#9fd09a', .04, 4]]) {
+    ctx.beginPath(); ctx.moveTo(0, H);
+    for (let x = 0; x <= W + 1; x += W / 48) ctx.lineTo(x, H * k + Math.sin(x / W * 6 + ph + t * .3) * m * amp);
+    ctx.lineTo(W, H); ctx.closePath(); ctx.fillStyle = col; ctx.fill();
+  }
+  if (!busy) return;
+  for (let i = 0; i < 7; i++) {                    // drifting lanterns: strong colours and hard edges, on purpose
+    const x = W * (.5 + .45 * Math.sin(t * (.21 + i * .03) + i * 1.7)), y = H * (.5 + .42 * Math.cos(t * (.17 + i * .025) + i * 2.3)), r = m * (.07 + .03 * (i % 3));
+    ctx.fillStyle = LANTERN[i]; ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.beginPath(); ctx.arc(x - r * .3, y - r * .3, r * .28, 0, TAU); ctx.fill();
+  }
+}
+function flies(dt, t) {
+  const W = S.W, H = S.H, m = Math.min(W, H), tips = S.scene && S.scene.type === 'hands' ? S.tips : [];
+  while (S.flies.length < 36) S.flies.push({x: Math.random() * W, y: Math.random() * H, vx: 0, vy: 0, ph: Math.random() * TAU});
+  S.flies.forEach((f, i) => {
+    const tip = tips.length && i < tips.length * 5 ? tips[i % tips.length] : null;
+    if (tip) {
+      // Hover just past the fingertip, off the finger: anything drawn on the fingertip itself blurs where the camera sees it end.
+      const a = t * 3 + f.ph, out = m * (.065 + .02 * Math.sin(t * 2 + f.ph));
+      const tx = tip[0] + tip[2] * out + Math.cos(a) * m * .018, ty = tip[1] + tip[3] * out + Math.sin(a) * m * .018;
+      f.vx += ((tx - f.x) * 40 - f.vx * 9) * dt; f.vy += ((ty - f.y) * 40 - f.vy * 9) * dt;
+    } else {
+      f.vx += ((Math.random() - .5) * m * 6 - f.vx * .9) * dt; f.vy += ((Math.random() - .5) * m * 6 - f.vy * .9) * dt;
+      if (f.x < m * .05) f.vx += m * dt * 2; if (f.x > W - m * .05) f.vx -= m * dt * 2;
+      if (f.y < m * .05) f.vy += m * dt * 2; if (f.y > H - m * .05) f.vy -= m * dt * 2;
+    }
+    const sp = Math.hypot(f.vx, f.vy), cap = m * 1.2;   // fast movers are hard for the camera to predict, so fireflies stay unhurried
+    if (sp > cap) { f.vx *= cap / sp; f.vy *= cap / sp; }
+    f.x += f.vx * dt; f.y += f.vy * dt;
+    const glow = .65 + .35 * Math.sin(t * 5 + f.ph), r = m * .03, g = ctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, r);
+    g.addColorStop(0, `rgba(255,190,40,${.75 * glow})`); g.addColorStop(1, 'rgba(255,190,40,0)');
+    ctx.fillStyle = g; ctx.fillRect(f.x - r, f.y - r, r * 2, r * 2);
+    ctx.fillStyle = '#ff9d00'; ctx.beginPath(); ctx.arc(f.x, f.y, m * .008, 0, TAU); ctx.fill();   // bright, never dark: under dark light a hand looks just like the table
+    ctx.fillStyle = '#fff4b0'; ctx.beginPath(); ctx.arc(f.x, f.y, m * .005, 0, TAU); ctx.fill();
+  });
+}
+function words(text, x, y, size, col, edge) {
+  ctx.font = `800 ${size}px 'Baloo 2','Trebuchet MS',sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  if (edge) { ctx.lineWidth = size * .14; ctx.strokeStyle = edge; ctx.lineJoin = 'round'; ctx.strokeText(text, x, y); }
+  ctx.fillStyle = col; ctx.fillText(text, x, y);
+}
+function icon(i, x, y, s) {
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  if (i === 0) { ctx.fillStyle = '#ffd23f'; ctx.beginPath(); ctx.arc(x, y, s * .45, 0, TAU); ctx.fill(); ctx.strokeStyle = '#ffd23f'; ctx.lineWidth = s * .09; for (let k = 0; k < 8; k++) { const a = k * TAU / 8; ctx.beginPath(); ctx.moveTo(x + Math.cos(a) * s * .62, y + Math.sin(a) * s * .62); ctx.lineTo(x + Math.cos(a) * s * .85, y + Math.sin(a) * s * .85); ctx.stroke(); } }
+  if (i === 1) { ctx.fillStyle = '#ffd23f'; ctx.beginPath(); [[.15, -.9], [-.4, .1], [0, .1], [-.2, .9], [.45, -.2], [.05, -.2], [.25, -.9]].forEach(([a, b], k) => k ? ctx.lineTo(x + a * s, y + b * s) : ctx.moveTo(x + a * s, y + b * s)); ctx.closePath(); ctx.fill(); }
+  if (i === 2) for (let k = 0; k < 9; k++) { ctx.fillStyle = '#ffd23f'; ctx.beginPath(); ctx.arc(x + ((k % 3) - 1) * s * .6, y + (((k / 3) | 0) - 1) * s * .6, s * .11, 0, TAU); ctx.fill(); }
+  if (i === 3) ['#ff4b4b', '#ffd23f', '#3ddc6b', '#3a8dff'].forEach((c, k) => { ctx.strokeStyle = c; ctx.lineWidth = s * .14; ctx.beginPath(); ctx.arc(x, y + s * .4, s * (.9 - k * .17), Math.PI, TAU); ctx.stroke(); });
+  if (i === 4) { ctx.strokeStyle = '#7fd4ff'; ctx.lineWidth = s * .1; ctx.strokeRect(x - s * .7, y - s * .6, s * 1.4, s * 1.2); ctx.beginPath(); ctx.moveTo(x, y - s * .6); ctx.lineTo(x, y + s * .6); ctx.moveTo(x - s * .7, y); ctx.lineTo(x + s * .7, y); ctx.stroke(); }
+  if (i === 5) { ctx.fillStyle = '#ffcf9e'; ctx.beginPath(); ctx.arc(x, y + s * .3, s * .42, 0, TAU); ctx.fill(); ctx.strokeStyle = '#ffcf9e'; ctx.lineWidth = s * .2; [-1.05, -.55, -.05, .45, .95].forEach((a, k) => { const L = k === 0 ? .5 : .75; ctx.beginPath(); ctx.moveTo(x, y + s * .3); ctx.lineTo(x + Math.sin(a) * s * (.42 + L), y + s * .3 - Math.cos(a) * s * (.42 + L)); ctx.stroke(); }); }
+}
+let last = 0;
+function frame(ms) {
+  const t = ms / 1000, dt = Math.min(.05, t - last); last = t;
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1;
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, S.W, S.H);
+  const sc = S.scene, W = S.W, H = S.H, m = Math.min(W, H);
+  try {
+    if (!sc) { meadow(t, false); flies(dt, t); }
+    else if (sc.type === 'card') {
+      ctx.fillStyle = '#0b1020'; ctx.fillRect(0, 0, W, H);
+      icon(sc.i, W / 2, H * .3, m * .14);
+      words(STAGES[sc.i].title, W / 2, H * .55, m * .12, '#eef2f8');
+      words(STAGES[sc.i].sub, W / 2, H * .68, m * .05, '#9ba7c2');
+      STAGES.forEach((_, k) => { ctx.fillStyle = k < sc.i ? '#3ddc6b' : k === sc.i ? '#ffd23f' : '#27314b'; ctx.beginPath(); ctx.arc(W / 2 + (k - 2.5) * m * .07, H * .84, m * .016, 0, TAU); ctx.fill(); });
+    }
+    else if (sc.type === 'fill') { ctx.fillStyle = typeof sc.c === 'number' ? `rgb(${sc.c},${sc.c},${sc.c})` : sc.c; ctx.fillRect(0, 0, W, H); }
+    else if (sc.type === 'dot') { ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(sc.p[0] * W, sc.p[1] * H, m * .06, 0, TAU); ctx.fill(); }
+    else if (sc.type === 'grid') { ctx.fillStyle = '#fff'; for (const p of sc.pts) { ctx.beginPath(); ctx.arc(p[0] * W, p[1] * H, m * .016, 0, TAU); ctx.fill(); } }
+    else if (sc.type === 'magic') { meadow(t, true); flies(dt, t); words('Hands off the table for a moment', W / 2, H * .1, m * .055, '#3b2a5a', 'rgba(255,255,255,.8)'); }
+    else if (sc.type === 'hands') {
+      meadow(t, false); flies(dt, t);
+      if (!S.everHand) words('Spread a hand flat on the table', W / 2, H * .1, m * .06, '#3b2a5a', 'rgba(255,255,255,.8)');
+      for (const hd of S.handView) if (hd.tips.length) {
+        const [x, y] = hd.palm;
+        ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.beginPath(); ctx.arc(x, y, m * .045, 0, TAU); ctx.fill();
+        words(String(hd.tips.length), x, y + m * .004, m * .06, '#3b2a5a');
+      }
+    }
+  } catch (e) { console.error(e); }
+  if (sc && sc.timed && !sc.shownAt) sc.shownAt = performance.now();
+  if (S.rec) record();
+  requestAnimationFrame(frame);
+}
+
+/* ---------- report card ---------- */
+function verdicts() {
+  const rows = [], add = (name, val, v, tip) => rows.push({name, val, v, tip});
+  const L = R.lights, D = R.delay, G = R.lineup, C = R.colour, M = R.window, Hh = R.hands, cam = R.camera || {};
+  if (L) {
+    const cut = L.cutOff > .01, small = L.fill < .35;
+    add('Camera view', `The picture fills ${Math.round(L.fill * 100)}% of the camera's view${cut ? ' and runs off its edge' : ''}.`, cut ? 'fix' : small ? 'ok' : 'good',
+        cut ? 'Part of the picture is outside the camera\'s view. Aim the camera wider or raise the phone.' : small ? 'The picture is small to the camera, so it sees less detail. Move the phone closer or make the picture bigger.' : '');
+    const sat = L.saturated > .05, dim = L.contrast < 4;
+    add('Brightness', `White is ${L.contrast}× brighter than the room light alone. ${Math.round(L.saturated * 100)}% of the picture is too bright for the camera.`, sat || dim ? (L.contrast < 2 ? 'fix' : 'ok') : 'good',
+        sat ? 'Bright areas are blown out in the camera, which hides colour. Turn the projector brightness down a little.' : dim ? 'Room light is washing out the picture. Dim the room or close the curtains.' : '');
+    add('Evenness', `The dimmest parts get ${Math.round(L.even * 100)}% of the light the brightest parts get.`, L.even >= .5 ? 'good' : 'ok',
+        L.even >= .5 ? '' : 'The edges are much darker than the middle. Usual for projectors; colour reading is weaker near the edges.');
+  }
+  if (D) add('Delay', `${D.ms} ms from screen to camera (between ${D.fastest} and ${D.slowest}). Camera sends ${D.cameraFps} pictures a second.`, D.ms < 250 ? 'good' : D.ms < 600 ? 'ok' : 'fix',
+    D.ms < 250 ? '' : 'Screen mirroring is slow. A cable, or the TV or projector\'s game mode, will make anything with hands feel quicker.');
+  if (G) add('Line-up', `Off by ${G.rmsScreenPx} screen pixels on average, ${G.blockEdgePct}% of a Block Table block edge. Four dots alone were off by up to ${G.fourDotMaxScreenPx}. Found ${G.found} grid dots.`,
+    G.blockEdgePct < 10 ? 'good' : G.blockEdgePct < 25 ? 'ok' : 'fix', G.blockEdgePct < 10 ? '' : 'The table may not be flat, or the lens bends the picture. Keep the phone square on to the table.');
+  const lock = cam.lock;
+  if (lock) add('Camera lock', lock.locked.length ? `This phone let the game lock ${lock.locked.join(', ')}.` : 'This phone did not let the game lock exposure or colour.',
+    lock.locked.includes('exposure') ? 'good' : 'ok', lock.locked.includes('exposure') ? '' : 'The camera may brighten and darken by itself. The game corrects for it, but it costs some accuracy.');
+  if (C) add('Colours', `White boost ${Math.round(C.whiteBoost * 100)}% ${C.whiteBoost > .15 ? '(white is brighter than red, green and blue added up, as on most DLP projectors)' : ''}.`, 'good', '');
+  if (M) add('Reading over moving pictures', `Typical error ${M.typicalError} of 255 (95% under ${M.error95}). False alarms on ${(M.falseAlarms * 100).toFixed(2)}% of the table. Exposure wandered ${Math.round(M.exposureDrift * 100)}%.`,
+    M.flatError95 < 20 && M.falseAlarms < .01 ? 'good' : M.flatError95 < 35 ? 'ok' : 'fix',
+    M.flatError95 < 20 ? '' : 'The camera can\'t predict the picture well enough yet. Lock the camera if possible, and keep the room light steady.');
+  if (Hh) add('Hands', Hh.sawHand ? `Saw a hand in ${Hh.sawHand} of ${Hh.looks} looks; up to ${Hh.mostTips} fingertips at once. Each look took ${Hh.msPerLook} ms.` : `No hand seen yet in ${Hh.looks} looks. Each look took ${Hh.msPerLook} ms.`,
+    Hh.mostTips >= 5 ? 'good' : Hh.sawHand ? 'ok' : 'none', Hh.mostTips >= 5 ? '' : 'Spread your fingers wide, with the hand flat on the table and away from the edge.');
+  return rows;
+}
+function renderReport() {
+  const box = $('report');
+  if (!R) { box.hidden = true; return; }
+  box.hidden = false;
+  $('when').textContent = (R.error ? `Stopped at "${R.reached}": ${R.error} ` : '') + 'Measured ' + new Date(R.when).toLocaleString() + '.';
+  const ul = $('rows'); ul.textContent = '';
+  for (const r of verdicts()) {
+    const li = document.createElement('li'), b = document.createElement('b'), chip = document.createElement('span'), val = document.createElement('span');
+    b.textContent = r.name; chip.className = 'chip ' + (r.v === 'good' ? '' : r.v); chip.textContent = {good: 'Good', ok: 'OK', fix: 'Fix', none: 'Not yet'}[r.v];
+    val.className = 'val'; val.textContent = r.val; li.append(b, chip, val);
+    if (r.tip) { const tp = document.createElement('span'); tp.className = 'tip'; tp.textContent = r.tip; li.append(tp); }
+    ul.append(li);
+  }
+  $('raw').value = JSON.stringify(R, null, 1);
+  const fig = $('viewFig');
+  if (!S.Wt || !S.gridView) { fig.hidden = true; return; }
+  fig.hidden = false;
+  const c = $('view'), vc = c.getContext('2d'), w = S.gw, h = S.gh, im = new ImageData(w, h);
+  for (let k = 0; k < im.data.length; k += 4) { im.data[k] = S.Wt[k]; im.data[k + 1] = S.Wt[k + 1]; im.data[k + 2] = S.Wt[k + 2]; im.data[k + 3] = 255; }
+  const tmp = document.createElement('canvas'); tmp.width = w; tmp.height = h; tmp.getContext('2d').putImageData(im, 0, 0);
+  c.width = 480; c.height = Math.round(480 * h / w); vc.drawImage(tmp, 0, 0, c.width, c.height);
+  vc.lineWidth = 2;
+  for (const [u, v, pu, pv] of S.gridView) {
+    const x = u * c.width, y = v * c.height;
+    vc.strokeStyle = '#ff4b4b'; vc.beginPath(); vc.moveTo(x, y); vc.lineTo(x + (pu - u) * c.width * 20, y + (pv - v) * c.height * 20); vc.stroke();
+    vc.fillStyle = '#3ddc6b'; vc.beginPath(); vc.arc(x, y, 3, 0, TAU); vc.fill();
+  }
+}
+
+/* ---------- controls ---------- */
+function showSheet(open) {
+  sheet.hidden = !open; $('gear').hidden = open;
+  if (open) {
+    if (S.handsOn) { S.handsOn = false; saveResults(); }
+    S.scene = null; S.rec = false; S.handView = []; S.tips = [];
+    renderReport();
+  }
+  $('howto').hidden = !!R;
+  $('go').textContent = R ? 'Run it again' : 'Start the tune-up';
+  $('resume').hidden = !(S.model && S.thr && video.srcObject);
+  $('resume').classList.toggle('primary', !$('resume').hidden); $('go').classList.toggle('primary', $('resume').hidden);
+}
+function goBig() {
+  try { const p = document.documentElement.requestFullscreen && document.documentElement.requestFullscreen(); if (p) p.catch(() => {}); } catch (e) {}
+  try { if (navigator.wakeLock) navigator.wakeLock.request('screen').catch(() => {}); } catch (e) {}
+}
+$('go').onclick = run;
+$('resume').onclick = () => { showSheet(false); S.hist = []; stageHands(); };
+$('gear').onclick = () => { if (!S.busy || S.handsOn) showSheet(true); };
+$('copy').onclick = async () => {
+  const text = JSON.stringify(R, null, 1);
+  try { await navigator.clipboard.writeText(text); note('Results copied.'); }
+  catch (e) { const ta = $('raw'); ta.closest('details').open = true; ta.select(); note('Select all and copy the numbers below.'); }
+};
+for (const k of ['sound', 'front']) { const el = $(k); el.checked = cfg[k]; el.onchange = () => { cfg[k] = el.checked; saveCfg(); }; }
+addEventListener('resize', layout);
+window.tuneUp = S; Object.defineProperty(window, 'tuneUpResults', {get: () => R});   // handy for poking at state from the console
+layout(); showSheet(true);
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

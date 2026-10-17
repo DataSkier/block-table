@@ -32,6 +32,23 @@ Hands held in the projector beam throw a shadow on the bright stage; the camera 
 - The camera line-up from Block Table is reused if Shadow Puppets hasn't saved its own yet.
 - *Teach the animals* (in settings) learns your own shadows: it talks you through all six, two takes each, capturing each when it's held still. Taught animals are matched against your takes instead of the drawn shapes, and must also beat every other taught animal and plain hands (fist, flat hand, open hand), so waving doesn't count. Takes are kept in the browser on that phone; *Forget them* goes back to the drawn shapes.
 
+## Table Tune-Up
+
+A one-minute check of the rig, as six short scenes, ending in a report card:
+
+1. **Lights on**: where the projected picture lands in the camera's view, whether any of it is cut off, blown out or washed out by room light. The camera's exposure, white balance and focus are locked here if the phone allows it.
+2. **Lightning**: full-screen flashes time the delay from screen to camera (mirroring plus camera).
+3. **Fireflies land**: the four-dot line-up, then a 7×5 grid of dots measures how far off it is, in screen pixels and as a share of a Block Table block edge.
+4. **Rainbow**: grey steps and pure red, green and blue teach it how projected colours come out in the camera, so it can predict what the camera should see for any picture.
+5. **Magic window**: a busy moving picture over the empty table checks that prediction and sets how big a difference counts.
+6. **Firefly hands**: hands are whatever the prediction can't explain, so they're found even over a moving picture. Fingertips are points of the hand's outline far from the palm, and fireflies gather just past each one. Shadows are told apart from hands by getting almost none of the projector's light.
+
+Tap the gear for the report card. *Copy results* copies every number as text. The last results, line-up and delay are saved under `tableTuneUp`.
+
+Things learned building it, which apply to any game that reads hands:
+- Anything drawn dark on a hand hides it: under dark light a hand looks just like the table. Draw on hands only with bright colours.
+- Don't draw right on a fingertip, and don't move things fast near one: the camera can't predict fast movement exactly, and the blur can join the finger and pull the "tip" outward.
+
 ## Block Table: staying lined up
 
 After the four-dot line-up, Block Table keeps tracking crisp edges (pad borders, outlines, coral) in a dozen patches across the table and fits how the whole picture slid, twisted or tilted, so a phone that gets bumped keeps working without a new line-up. Detection pauses while the picture is still moving. If it can't find its place for about five seconds, it runs the four-dot line-up again by itself.
