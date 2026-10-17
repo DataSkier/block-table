@@ -34,7 +34,9 @@ Hands held in the projector beam throw a shadow on the bright stage; the camera 
 
 ## Table Tune-Up
 
-A one-minute check of the rig, as six short scenes, ending in a report card:
+A one-minute check of the rig, as six short scenes, ending in a report card.
+
+It starts by helping aim the camera: four coloured targets sit at the corners of the area it measures, and each shows a tick when the camera sees it fully, `!` when it's cut off by the edge of the camera's view, or `?` when it can't be seen. The measuring starts by itself once all four have held a tick for about a second. The gear stops it.
 
 1. **Lights on**: where the projected picture lands in the camera's view, whether any of it is cut off, blown out or washed out by room light. The camera's exposure, white balance and focus are locked here if the phone allows it.
 2. **Lightning**: full-screen flashes time the delay from screen to camera (mirroring plus camera).

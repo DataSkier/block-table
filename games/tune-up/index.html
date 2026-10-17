@@ -105,7 +105,8 @@ summary{cursor:pointer;font-weight:700;padding:10px 0}
     <ol>
       <li>Mirror this phone to the projector and aim the projector down at a plain, light table.</li>
       <li>Prop the phone above the table so its back camera sees the whole projected picture.</li>
-      <li>Clear the table, keep hands off it, and tap Start. It takes about a minute.</li>
+      <li>Clear the table and tap Start. Four coloured corners appear: turn the phone until each one shows a tick.</li>
+      <li>Then keep hands off the table for about a minute while it measures.</li>
     </ol>
   </section>
 
@@ -316,6 +317,49 @@ function brightSpot(frame, dark) {
   return [sx / c / S.pw, sy / c / S.ph];
 }
 
+/* ---------- 0. Aim: coloured targets at the corners of the measured area, each ticked when the camera sees it ----------
+   Nothing is lined up yet, so the targets are told apart by colour. They sit where the outermost grid dots go,
+   so four ticks means the whole grid will be in view. A grey background keeps the camera's auto exposure
+   from washing the colours out to white. */
+const AIM = [{p: [.08, .1], c: '#ff3030', hue: 0}, {p: [.92, .1], c: '#ffe000', hue: 58}, {p: [.92, .9], c: '#20e050', hue: 135}, {p: [.08, .9], c: '#3070ff', hue: 225}];
+function findTargets(d) {                          // per target: 0 not seen, 1 seen but cut by the camera's edge, 2 fully in view
+  const w = S.gw, h = S.gh, n = w * h, lab = new Uint8Array(n);
+  for (let i = 0; i < n; i++) {
+    const k = i * 4, r = d[k], g = d[k + 1], b = d[k + 2], mx = Math.max(r, g, b), mn = Math.min(r, g, b), c = mx - mn;
+    if (mx < 100 || c < 45) continue;
+    const hue = mx === r ? 60 * (((g - b) / c + 6) % 6) : mx === g ? 60 * ((b - r) / c + 2) : 60 * ((r - g) / c + 4);
+    let best = 0, bd = 999;
+    AIM.forEach((tg, j) => { const dd = Math.abs(((hue - tg.hue + 540) % 360) - 180); if (dd < bd) { bd = dd; best = j; } });
+    if (bd < 40) lab[i] = best + 1;
+  }
+  return AIM.map((tg, j) => {
+    const bin = new Uint8Array(n); for (let i = 0; i < n; i++) bin[i] = lab[i] === j + 1 ? 1 : 0;
+    const {lab: L, sizes} = components(bin, w, h);
+    let id = 0; for (let q = 1; q < sizes.length; q++) if (sizes[q] > (id ? sizes[id] : 0)) id = q;
+    if (!id || sizes[id] < 8) return 0;
+    for (let i = 0; i < n; i++) if (L[i] === id) { const x = i % w, y = (i / w) | 0; if (x < 2 || y < 2 || x > w - 3 || y > h - 3) return 1; }
+    return 2;
+  });
+}
+async function stageAim() {
+  const sc = S.scene = {type: 'aim', state: [0, 0, 0, 0]}, t0 = performance.now();
+  speak('First, aim the camera. Turn the phone until all four corners show a tick.');
+  let steady = 0, had = 0;
+  R.aim = {looks: 0};
+  for (;;) {
+    if (S.cancel) throw new Error('Stopped. Tap Start when you\'re ready.');
+    await nextCamFrame();
+    sc.state = findTargets(grabHalf()); R.aim.looks++;
+    const ticks = sc.state.filter(s => s === 2).length;
+    if (ticks > had) tone(600 + ticks * 120, 0, .15); had = ticks;
+    steady = ticks === 4 ? steady + 1 : 0;
+    if (steady >= 10) break;                      // about a second with all four in view
+    await sleep(50);
+  }
+  R.aim.seconds = r1((performance.now() - t0) / 1000);
+  speak('Got it.');
+}
+
 /* ---------- 1. Lights on: where the picture lands in the camera, and how bright ---------- */
 async function stageLights() {
   S.scene = {type: 'fill', c: 255}; await sleep(1600);
@@ -403,12 +447,16 @@ async function stageFireflies() {
     const x0 = Math.max(0, Math.round(cx - rad)), x1 = Math.min(pw - 1, Math.round(cx + rad)), y0 = Math.max(0, Math.round(cy - rad)), y1 = Math.min(ph - 1, Math.round(cy + rad));
     const d = (x, y) => { const k = (y * pw + x) * 4; return (f1[k] + f1[k + 1] + f1[k + 2] + f2[k] + f2[k + 1] + f2[k + 2]) / 2 - (dark[k] + dark[k + 1] + dark[k + 2]); };
     for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) mx = Math.max(mx, d(x, y));
-    if (mx < 60) continue;
+    if (mx < 45) continue;
     let sx = 0, sy = 0, sw = 0;
     for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { const v = d(x, y) - mx * .5; if (v > 0) { sx += x * v; sy += y * v; sw += v; } }
     obs.push([p[0], p[1], sx / sw / pw, sy / sw / ph]);
   }
-  if (obs.length < 12) throw new Error('Too few of the grid dots were found. Make sure the camera sees the whole picture and try again.');
+  if (obs.length < 12) {                           // say which side went missing
+    const miss = pts.filter(p => !obs.some(o => o[0] === p[0] && o[1] === p[1])), mx = miss.reduce((s, p) => s + p[0], 0) / miss.length - .5, my = miss.reduce((s, p) => s + p[1], 0) / miss.length - .5;
+    const side = Math.abs(mx) > Math.abs(my) ? (mx < 0 ? 'left' : 'right') : (my < 0 ? 'top' : 'bottom');
+    throw new Error(`Only ${obs.length} of ${pts.length} grid dots were found; the ones missing were mostly toward the ${side} of the picture. Run it again and re-aim until all four corners show a tick.`);
+  }
   let hm = fitHomography(obs);
   const resid = (H, o) => { const [u, v] = project(H, o[0], o[1]); return Math.hypot((u - o[2]) * pw, (v - o[3]) * ph); };
   const cut = Math.max(2, 3 * pct(obs.map(o => resid(hm, o)), .5));
@@ -634,11 +682,12 @@ async function run() {
   if (S.busy) return;
   S.busy = true; S.handsOn = false; initAudio(); goBig(); note('Opening the camera…');
   R = {when: new Date().toISOString(), screen: {w: S.W, h: S.H, dpr: Math.min(window.devicePixelRatio || 1, 2)}, browser: navigator.userAgent};
-  S.lag = null; S.wait = 1200; S.model = null; S.thr = null; S.everHand = false; S.gridView = null;
+  S.lag = null; S.wait = 1200; S.model = null; S.thr = null; S.everHand = false; S.gridView = null; S.cancel = false;
   try {
     await startCamera();
     R.camera = {w: video.videoWidth, h: video.videoHeight};
     note(''); showSheet(false);
+    R.reached = 'Aim'; await stageAim();
     for (let i = 0; i < STAGES.length; i++) {
       R.reached = STAGES[i].title;
       S.scene = {type: 'card', i}; speak(STAGES[i].title + '. ' + STAGES[i].sub + '.'); tone(523 + i * 80, 0, .3);
@@ -744,7 +793,19 @@ function frame(ms) {
     }
     else if (sc.type === 'fill') { ctx.fillStyle = typeof sc.c === 'number' ? `rgb(${sc.c},${sc.c},${sc.c})` : sc.c; ctx.fillRect(0, 0, W, H); }
     else if (sc.type === 'dot') { ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(sc.p[0] * W, sc.p[1] * H, m * .06, 0, TAU); ctx.fill(); }
-    else if (sc.type === 'grid') { ctx.fillStyle = '#fff'; for (const p of sc.pts) { ctx.beginPath(); ctx.arc(p[0] * W, p[1] * H, m * .016, 0, TAU); ctx.fill(); } }
+    else if (sc.type === 'grid') { ctx.fillStyle = '#fff'; for (const p of sc.pts) { ctx.beginPath(); ctx.arc(p[0] * W, p[1] * H, m * .02, 0, TAU); ctx.fill(); } }
+    else if (sc.type === 'aim') {
+      ctx.fillStyle = '#3a4258'; ctx.fillRect(0, 0, W, H);
+      const R0 = m * .075, ticks = sc.state.filter(s => s === 2).length;
+      AIM.forEach((tg, j) => {
+        const x = tg.p[0] * W, y = tg.p[1] * H, s = sc.state[j];
+        ctx.fillStyle = tg.c; ctx.beginPath(); ctx.arc(x, y, R0 * (s === 2 ? 1 : 1 + .1 * Math.sin(t * 6)), 0, TAU); ctx.fill();
+        words(s === 2 ? '✓' : s === 1 ? '!' : '?', x, y + R0 * .06, R0 * 1.1, '#fff', 'rgba(0,0,0,.35)');
+      });
+      words(ticks === 4 ? 'Hold still…' : 'Aim the camera', W / 2, H * .42, m * .1, '#eef2f8');
+      if (ticks < 4) words(`Turn the phone until every corner shows a tick (${ticks} of 4)`, W / 2, H * .56, m * .042, '#c9d2e6');
+      if (ticks < 4) words('! means that corner is right at the edge of the camera\'s view', W / 2, H * .64, m * .032, '#9ba7c2');
+    }
     else if (sc.type === 'magic') { meadow(t, true); flies(dt, t); words('Hands off the table for a moment', W / 2, H * .1, m * .055, '#3b2a5a', 'rgba(255,255,255,.8)'); }
     else if (sc.type === 'hands') {
       meadow(t, false); flies(dt, t);
@@ -838,7 +899,7 @@ function goBig() {
 }
 $('go').onclick = run;
 $('resume').onclick = () => { showSheet(false); S.hist = []; stageHands(); };
-$('gear').onclick = () => { if (!S.busy || S.handsOn) showSheet(true); };
+$('gear').onclick = () => { if (S.scene && S.scene.type === 'aim') S.cancel = true; else if (!S.busy || S.handsOn) showSheet(true); };
 $('copy').onclick = async () => {
   const text = JSON.stringify(R, null, 1);
   try { await navigator.clipboard.writeText(text); note('Results copied.'); }
