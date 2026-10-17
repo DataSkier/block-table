@@ -71,6 +71,9 @@ summary{cursor:pointer;font-weight:700;padding:10px 0}
   position:fixed;right:calc(10px + env(safe-area-inset-right,0px));top:calc(10px + env(safe-area-inset-top,0px));
   width:44px;height:44px;padding:0;background:rgba(20,40,60,.3);border-color:rgba(20,40,60,.25);color:rgba(255,255,255,.85);font-size:20px;
 }
+/* The gear is drawn over the projected picture, so keep it off the corner targets and grid dots. */
+body[data-stage="aim"] #gear{top:calc(50% - 22px)}
+body[data-stage="measure"] #gear{display:none}
 
 /* Report card: one row per measurement, with a verdict chip and, when needed, what to change. */
 #report{display:flex;flex-direction:column;gap:10px}
@@ -709,9 +712,11 @@ async function run() {
     await startCamera();
     R.camera = {w: video.videoWidth, h: video.videoHeight};
     note(''); showSheet(false);
+    document.body.dataset.stage = 'aim';
     R.reached = 'Aim'; await stageAim();
     for (let i = 0; i < STAGES.length; i++) {
       R.reached = STAGES[i].title;
+      document.body.dataset.stage = i === STAGES.length - 1 ? 'hands' : 'measure';
       S.scene = {type: 'card', i, t0: performance.now() / 1000}; speak(STAGES[i].title + '. ' + STAGES[i].sub + '.'); tone(523 + i * 80, 0, .3);
       await sleep(2600);
       if (i === STAGES.length - 1) saveResults();
@@ -967,6 +972,7 @@ function renderReport() {
 function showSheet(open) {
   sheet.hidden = !open; $('gear').hidden = open;
   if (open) {
+    delete document.body.dataset.stage;
     if (S.handsOn) { S.handsOn = false; saveResults(); }
     S.scene = null; S.rec = false; S.handView = []; S.tips = [];
     renderReport();
