@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Table Tune-Up</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;800&family=Nunito:wght@500;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;800&family=Nunito:wght@500;700;800&display=swap">
 <style>
 /* Layout: a full-bleed projected scene, with one setup sheet docked left (bottom on narrow screens). */
 :root{
@@ -342,17 +342,19 @@ function findTargets(d) {                          // per target: 0 not seen, 1 
   });
 }
 async function stageAim() {
-  const sc = S.scene = {type: 'aim', state: [0, 0, 0, 0]}, t0 = performance.now();
+  const sc = S.scene = {type: 'aim', state: [0, 0, 0, 0], since: [0, 0, 0, 0], steady: 0}, t0 = performance.now();
   speak('First, aim the camera. Turn the phone until all four corners show a tick.');
   let steady = 0, had = 0;
   R.aim = {looks: 0};
   for (;;) {
     if (S.cancel) throw new Error('Stopped. Tap Start when you\'re ready.');
     await nextCamFrame();
-    sc.state = findTargets(grabHalf()); R.aim.looks++;
+    const next = findTargets(grabHalf()); R.aim.looks++;
+    next.forEach((s, j) => { if (s === 2 && sc.state[j] !== 2) sc.since[j] = performance.now() / 1000; });
+    sc.state = next;
     const ticks = sc.state.filter(s => s === 2).length;
     if (ticks > had) tone(600 + ticks * 120, 0, .15); had = ticks;
-    steady = ticks === 4 ? steady + 1 : 0;
+    sc.steady = steady = ticks === 4 ? steady + 1 : 0;
     if (steady >= 10) break;                      // about a second with all four in view
     await sleep(50);
   }
@@ -690,7 +692,7 @@ async function run() {
     R.reached = 'Aim'; await stageAim();
     for (let i = 0; i < STAGES.length; i++) {
       R.reached = STAGES[i].title;
-      S.scene = {type: 'card', i}; speak(STAGES[i].title + '. ' + STAGES[i].sub + '.'); tone(523 + i * 80, 0, .3);
+      S.scene = {type: 'card', i, t0: performance.now() / 1000}; speak(STAGES[i].title + '. ' + STAGES[i].sub + '.'); tone(523 + i * 80, 0, .3);
       await sleep(2600);
       if (i === STAGES.length - 1) saveResults();
       await STAGES[i].run();
@@ -767,6 +769,88 @@ function words(text, x, y, size, col, edge) {
   if (edge) { ctx.lineWidth = size * .14; ctx.strokeStyle = edge; ctx.lineJoin = 'round'; ctx.strokeText(text, x, y); }
   ctx.fillStyle = col; ctx.fillText(text, x, y);
 }
+function label(text, x, y, size, col, spacing) {   // running text in the body face; spacing for small capitals
+  ctx.font = `800 ${size}px Nunito,system-ui,sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  if ('letterSpacing' in ctx) ctx.letterSpacing = spacing || '0px';
+  ctx.fillStyle = col; ctx.fillText(text, x, y);
+  if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
+}
+function tick(x, y, r, col, w) {                  // a drawn check mark, so it never depends on a font having the glyph
+  ctx.strokeStyle = col; ctx.lineWidth = w; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.beginPath(); ctx.moveTo(x - r * .42, y + r * .02); ctx.lineTo(x - r * .12, y + r * .32); ctx.lineTo(x + r * .44, y - r * .3); ctx.stroke();
+}
+const STAGE_GLOW = ['255,210,63', '255,210,63', '255,210,63', '255,107,139', '127,212,255', '255,207,158'];
+function drawCard(sc, t) {                         // between stages: where we are in the run, and what's next
+  const W = S.W, H = S.H, m = Math.min(W, H), i = sc.i, a = Math.min(1, (t - (sc.t0 || t)) / .4);
+  const bg = ctx.createLinearGradient(0, 0, 0, H); bg.addColorStop(0, '#161d38'); bg.addColorStop(1, '#0a0e1c');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+  const gl = ctx.createRadialGradient(W / 2, H * .3, 0, W / 2, H * .3, m * .32);
+  gl.addColorStop(0, `rgba(${STAGE_GLOW[i]},.16)`); gl.addColorStop(1, `rgba(${STAGE_GLOW[i]},0)`);
+  ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = gl; ctx.fillRect(0, 0, W, H); ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = a;
+  label(`STEP ${i + 1} OF ${STAGES.length}`, W / 2, H * .1, m * .032, '#ffd23f', `${m * .006}px`);
+  icon(i, W / 2, H * .3 + (1 - a) * m * .03, m * .13);
+  words(STAGES[i].title, W / 2, H * .56, m * .12, '#eef2f8');
+  label(STAGES[i].sub, W / 2, H * .68, m * .045, '#9ba7c2');
+  ctx.globalAlpha = 1;
+  const gap = m * .075, y = H * .85, x0 = W / 2 - gap * (STAGES.length - 1) / 2;
+  ctx.strokeStyle = '#27314b'; ctx.lineWidth = m * .006; ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x0 + gap * (STAGES.length - 1), y); ctx.stroke();
+  STAGES.forEach((_, k) => {
+    const x = x0 + k * gap, cur = k === i, r = m * (cur ? .022 : .015);
+    ctx.fillStyle = k < i ? '#3ddc6b' : cur ? '#ffd23f' : '#27314b';
+    ctx.beginPath(); ctx.arc(x, y, r * (cur ? 1 + .08 * Math.sin(t * 5) : 1), 0, TAU); ctx.fill();
+    if (k < i) tick(x, y, r, '#0a0e1c', m * .005);
+  });
+}
+/* The aiming screen. Only the four targets may be strongly coloured here: the camera finds them by colour,
+   so everything else is white or a dull slate the camera ignores. */
+function drawAim(sc, t) {
+  const W = S.W, H = S.H, m = Math.min(W, H), R0 = m * .075, ticks = sc.state.filter(s => s === 2).length;
+  const bg = ctx.createRadialGradient(W / 2, H * .46, 0, W / 2, H * .46, Math.hypot(W, H) * .6);
+  bg.addColorStop(0, '#444b65'); bg.addColorStop(1, '#2c3245');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+  const P = AIM.map(tg => [tg.p[0] * W, tg.p[1] * H]);
+  ctx.save();                                       // the area that gets measured, running through the four targets
+  ctx.setLineDash([m * .02, m * .016]); ctx.lineDashOffset = -t * m * .03; ctx.lineWidth = m * .005;
+  ctx.strokeStyle = ticks === 4 ? 'rgba(255,255,255,.6)' : 'rgba(255,255,255,.22)';
+  ctx.strokeRect(P[0][0], P[0][1], P[2][0] - P[0][0], P[2][1] - P[0][1]);
+  ctx.restore();
+  AIM.forEach((tg, j) => {
+    const [x, y] = P[j], s = sc.state[j], since = t - ((sc.since && sc.since[j]) || -9), k = s === 2 ? 1 : 1 + .06 * Math.sin(t * 4 + j * 1.6);
+    if (s === 2 && since < .7) {                    // a ring that spreads out when a corner is found
+      ctx.lineWidth = m * .007; ctx.strokeStyle = `rgba(255,255,255,${1 - since / .7})`;
+      ctx.beginPath(); ctx.arc(x, y, R0 * (1.25 + since * 1.4), 0, TAU); ctx.stroke();
+    }
+    ctx.lineWidth = m * .008; ctx.strokeStyle = s === 2 ? '#fff' : 'rgba(255,255,255,.3)';
+    ctx.beginPath(); ctx.arc(x, y, R0 * 1.24 * k, 0, TAU); ctx.stroke();
+    ctx.fillStyle = tg.c; ctx.beginPath(); ctx.arc(x, y, R0 * k, 0, TAU); ctx.fill();
+    if (s === 2) tick(x, y, R0, '#fff', R0 * .2);
+    else words(s === 1 ? '!' : '?', x, y + R0 * .07, R0 * 1.05, '#fff', 'rgba(0,0,0,.28)');
+  });
+  const cx = W / 2;
+  label('BEFORE MEASURING', cx, H * .27, m * .03, '#c9d2e6', `${m * .006}px`);
+  words(ticks === 4 ? 'Hold still' : 'Aim the camera', cx, H * .39, m * .11, '#f4f6fb');
+  label(ticks === 4 ? 'All four corners are in view. Starting in a moment.'
+      : sc.state.every(s => s === 0) ? 'The camera can\'t see any corner yet. Point it at the table.'
+      : `${ticks} of 4 corners in view. Turn the phone toward any corner without a tick.`, cx, H * .51, m * .042, '#dde3f0');
+  if (ticks === 4) {                                // how long until it starts by itself
+    const w = m * .5, h = m * .014, f = Math.min(1, (sc.steady || 0) / 10);
+    ctx.fillStyle = 'rgba(255,255,255,.18)'; ctx.beginPath(); ctx.roundRect(cx - w / 2, H * .6, w, h, h / 2); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.roundRect(cx - w / 2, H * .6, Math.max(h, w * f), h, h / 2); ctx.fill();
+    return;
+  }
+  const keys = [['tick', 'In view'], ['!', 'At the edge'], ['?', 'Out of view']], r = m * .022, sz = m * .032;
+  ctx.font = `800 ${sz}px Nunito,system-ui,sans-serif`;
+  const widths = keys.map(([, s]) => r * 2 + m * .014 + ctx.measureText(s).width), sep = m * .05;
+  let x = cx - (widths.reduce((a, b) => a + b, 0) + sep * (keys.length - 1)) / 2;
+  keys.forEach(([g, s], n) => {                     // the legend, in white only so it can't be mistaken for a target
+    const y = H * .62;
+    ctx.lineWidth = m * .004; ctx.strokeStyle = 'rgba(255,255,255,.7)'; ctx.beginPath(); ctx.arc(x + r, y, r, 0, TAU); ctx.stroke();
+    if (g === 'tick') tick(x + r, y, r, '#fff', m * .005); else words(g, x + r, y + r * .1, r * 1.3, '#fff');
+    ctx.font = `800 ${sz}px Nunito,system-ui,sans-serif`; ctx.textAlign = 'left'; ctx.fillStyle = '#c9d2e6'; ctx.fillText(s, x + r * 2 + m * .014, y);
+    x += widths[n] + sep;
+  });
+}
 function icon(i, x, y, s) {
   ctx.lineCap = 'round'; ctx.lineJoin = 'round';
   if (i === 0) { ctx.fillStyle = '#ffd23f'; ctx.beginPath(); ctx.arc(x, y, s * .45, 0, TAU); ctx.fill(); ctx.strokeStyle = '#ffd23f'; ctx.lineWidth = s * .09; for (let k = 0; k < 8; k++) { const a = k * TAU / 8; ctx.beginPath(); ctx.moveTo(x + Math.cos(a) * s * .62, y + Math.sin(a) * s * .62); ctx.lineTo(x + Math.cos(a) * s * .85, y + Math.sin(a) * s * .85); ctx.stroke(); } }
@@ -784,28 +868,11 @@ function frame(ms) {
   const sc = S.scene, W = S.W, H = S.H, m = Math.min(W, H);
   try {
     if (!sc) { meadow(t, false); flies(dt, t); }
-    else if (sc.type === 'card') {
-      ctx.fillStyle = '#0b1020'; ctx.fillRect(0, 0, W, H);
-      icon(sc.i, W / 2, H * .3, m * .14);
-      words(STAGES[sc.i].title, W / 2, H * .55, m * .12, '#eef2f8');
-      words(STAGES[sc.i].sub, W / 2, H * .68, m * .05, '#9ba7c2');
-      STAGES.forEach((_, k) => { ctx.fillStyle = k < sc.i ? '#3ddc6b' : k === sc.i ? '#ffd23f' : '#27314b'; ctx.beginPath(); ctx.arc(W / 2 + (k - 2.5) * m * .07, H * .84, m * .016, 0, TAU); ctx.fill(); });
-    }
+    else if (sc.type === 'card') drawCard(sc, t);
     else if (sc.type === 'fill') { ctx.fillStyle = typeof sc.c === 'number' ? `rgb(${sc.c},${sc.c},${sc.c})` : sc.c; ctx.fillRect(0, 0, W, H); }
     else if (sc.type === 'dot') { ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(sc.p[0] * W, sc.p[1] * H, m * .06, 0, TAU); ctx.fill(); }
     else if (sc.type === 'grid') { ctx.fillStyle = '#fff'; for (const p of sc.pts) { ctx.beginPath(); ctx.arc(p[0] * W, p[1] * H, m * .02, 0, TAU); ctx.fill(); } }
-    else if (sc.type === 'aim') {
-      ctx.fillStyle = '#3a4258'; ctx.fillRect(0, 0, W, H);
-      const R0 = m * .075, ticks = sc.state.filter(s => s === 2).length;
-      AIM.forEach((tg, j) => {
-        const x = tg.p[0] * W, y = tg.p[1] * H, s = sc.state[j];
-        ctx.fillStyle = tg.c; ctx.beginPath(); ctx.arc(x, y, R0 * (s === 2 ? 1 : 1 + .1 * Math.sin(t * 6)), 0, TAU); ctx.fill();
-        words(s === 2 ? '✓' : s === 1 ? '!' : '?', x, y + R0 * .06, R0 * 1.1, '#fff', 'rgba(0,0,0,.35)');
-      });
-      words(ticks === 4 ? 'Hold still…' : 'Aim the camera', W / 2, H * .42, m * .1, '#eef2f8');
-      if (ticks < 4) words(`Turn the phone until every corner shows a tick (${ticks} of 4)`, W / 2, H * .56, m * .042, '#c9d2e6');
-      if (ticks < 4) words('! means that corner is right at the edge of the camera\'s view', W / 2, H * .64, m * .032, '#9ba7c2');
-    }
+    else if (sc.type === 'aim') drawAim(sc, t);
     else if (sc.type === 'magic') { meadow(t, true); flies(dt, t); words('Hands off the table for a moment', W / 2, H * .1, m * .055, '#3b2a5a', 'rgba(255,255,255,.8)'); }
     else if (sc.type === 'hands') {
       meadow(t, false); flies(dt, t);
