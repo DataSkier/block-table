@@ -322,7 +322,23 @@ function brightSpot(frame, dark) {
    so four ticks means the whole grid will be in view. A grey background keeps the camera's auto exposure
    from washing the colours out to white. */
 const AIM = [{p: [.08, .1], c: '#ff3030', hue: 0}, {p: [.92, .1], c: '#ffe000', hue: 58}, {p: [.92, .9], c: '#20e050', hue: 135}, {p: [.08, .9], c: '#3070ff', hue: 225}];
-function findTargets(d) {                          // per target: 0 not seen, 1 seen but cut by the camera's edge, 2 fully in view
+const view = document.createElement('canvas'), vctx = view.getContext('2d');
+function updateView(d) {                           // the camera picture in black and white, for the aiming screen
+  const w = S.gw, h = S.gh;
+  if (view.width !== w || view.height !== h || !S.viewIm) { view.width = w; view.height = h; S.viewIm = vctx.createImageData(w, h); }
+  const o = S.viewIm.data, hist = new Uint32Array(256), n = d.length / 4;
+  for (let k = 0; k < d.length; k += 4) hist[(.3 * d[k] + .59 * d[k + 1] + .11 * d[k + 2]) | 0]++;
+  let lo = 0, hi = 255, c = 0;                      // stretch the darkest 2% to black and the brightest 2% to white
+  while (lo < 254 && (c += hist[lo]) < n * .02) lo++;
+  c = 0; while (hi > lo + 1 && (c += hist[hi]) < n * .02) hi--;
+  const f = 255 / Math.max(20, hi - lo);
+  for (let k = 0; k < d.length; k += 4) {         // halfway between the plain and the stretched picture, so dim areas stay readable
+    const g = .3 * d[k] + .59 * d[k + 1] + .11 * d[k + 2], v = (g + (g - lo) * f) / 2;
+    o[k] = o[k + 1] = o[k + 2] = v; o[k + 3] = 255;
+  }
+  vctx.putImageData(S.viewIm, 0, 0);
+}
+function findTargets(d, where) {                   // per target: 0 not seen, 1 seen but cut by the camera's edge, 2 fully in view
   const w = S.gw, h = S.gh, n = w * h, lab = new Uint8Array(n);
   for (let i = 0; i < n; i++) {
     const k = i * 4, r = d[k], g = d[k + 1], b = d[k + 2], mx = Math.max(r, g, b), mn = Math.min(r, g, b), c = mx - mn;
@@ -336,20 +352,24 @@ function findTargets(d) {                          // per target: 0 not seen, 1 
     const bin = new Uint8Array(n); for (let i = 0; i < n; i++) bin[i] = lab[i] === j + 1 ? 1 : 0;
     const {lab: L, sizes} = components(bin, w, h);
     let id = 0; for (let q = 1; q < sizes.length; q++) if (sizes[q] > (id ? sizes[id] : 0)) id = q;
+    if (where) where[j] = null;
     if (!id || sizes[id] < 8) return 0;
-    for (let i = 0; i < n; i++) if (L[i] === id) { const x = i % w, y = (i / w) | 0; if (x < 2 || y < 2 || x > w - 3 || y > h - 3) return 1; }
-    return 2;
+    let sx = 0, sy = 0, cut = false;
+    for (let i = 0; i < n; i++) if (L[i] === id) { const x = i % w, y = (i / w) | 0; sx += x; sy += y; if (x < 2 || y < 2 || x > w - 3 || y > h - 3) cut = true; }
+    if (where) where[j] = [(sx / sizes[id] + .5) / w, (sy / sizes[id] + .5) / h];
+    return cut ? 1 : 2;
   });
 }
 async function stageAim() {
-  const sc = S.scene = {type: 'aim', state: [0, 0, 0, 0], since: [0, 0, 0, 0], steady: 0}, t0 = performance.now();
+  const sc = S.scene = {type: 'aim', state: [0, 0, 0, 0], since: [-9, -9, -9, -9], found: [null, null, null, null], steady: 0, live: false}, t0 = performance.now();
   speak('First, aim the camera. Turn the phone until all four corners show a tick.');
   let steady = 0, had = 0;
   R.aim = {looks: 0};
   for (;;) {
     if (S.cancel) throw new Error('Stopped. Tap Start when you\'re ready.');
     await nextCamFrame();
-    const next = findTargets(grabHalf()); R.aim.looks++;
+    const d = grabHalf(); updateView(d); sc.live = true;
+    const next = findTargets(d, sc.found); R.aim.looks++;
     next.forEach((s, j) => { if (s === 2 && sc.state[j] !== 2) sc.since[j] = performance.now() / 1000; });
     sc.state = next;
     const ticks = sc.state.filter(s => s === 2).length;
@@ -805,18 +825,13 @@ function drawCard(sc, t) {                         // between stages: where we a
 /* The aiming screen. Only the four targets may be strongly coloured here: the camera finds them by colour,
    so everything else is white or a dull slate the camera ignores. */
 function drawAim(sc, t) {
-  const W = S.W, H = S.H, m = Math.min(W, H), R0 = m * .075, ticks = sc.state.filter(s => s === 2).length;
+  const W = S.W, H = S.H, m = Math.min(W, H), R0 = m * .075, ticks = sc.state.filter(s => s === 2).length, edge = sc.state.some(s => s === 1);
   const bg = ctx.createRadialGradient(W / 2, H * .46, 0, W / 2, H * .46, Math.hypot(W, H) * .6);
   bg.addColorStop(0, '#444b65'); bg.addColorStop(1, '#2c3245');
   ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
   const P = AIM.map(tg => [tg.p[0] * W, tg.p[1] * H]);
-  ctx.save();                                       // the area that gets measured, running through the four targets
-  ctx.setLineDash([m * .02, m * .016]); ctx.lineDashOffset = -t * m * .03; ctx.lineWidth = m * .005;
-  ctx.strokeStyle = ticks === 4 ? 'rgba(255,255,255,.6)' : 'rgba(255,255,255,.22)';
-  ctx.strokeRect(P[0][0], P[0][1], P[2][0] - P[0][0], P[2][1] - P[0][1]);
-  ctx.restore();
   AIM.forEach((tg, j) => {
-    const [x, y] = P[j], s = sc.state[j], since = t - ((sc.since && sc.since[j]) || -9), k = s === 2 ? 1 : 1 + .06 * Math.sin(t * 4 + j * 1.6);
+    const [x, y] = P[j], s = sc.state[j], since = t - sc.since[j], k = s === 2 ? 1 : 1 + .06 * Math.sin(t * 4 + j * 1.6);
     if (s === 2 && since < .7) {                    // a ring that spreads out when a corner is found
       ctx.lineWidth = m * .007; ctx.strokeStyle = `rgba(255,255,255,${1 - since / .7})`;
       ctx.beginPath(); ctx.arc(x, y, R0 * (1.25 + since * 1.4), 0, TAU); ctx.stroke();
@@ -828,28 +843,29 @@ function drawAim(sc, t) {
     else words(s === 1 ? '!' : '?', x, y + R0 * .07, R0 * 1.05, '#fff', 'rgba(0,0,0,.28)');
   });
   const cx = W / 2;
-  label('BEFORE MEASURING', cx, H * .27, m * .03, '#c9d2e6', `${m * .006}px`);
-  words(ticks === 4 ? 'Hold still' : 'Aim the camera', cx, H * .39, m * .11, '#f4f6fb');
-  label(ticks === 4 ? 'All four corners are in view. Starting in a moment.'
-      : sc.state.every(s => s === 0) ? 'The camera can\'t see any corner yet. Point it at the table.'
-      : `${ticks} of 4 corners in view. Turn the phone toward any corner without a tick.`, cx, H * .51, m * .042, '#dde3f0');
+  words(ticks === 4 ? 'Hold still' : 'Aim the camera', cx, H * .1, m * .075, '#f4f6fb');
   if (ticks === 4) {                                // how long until it starts by itself
-    const w = m * .5, h = m * .014, f = Math.min(1, (sc.steady || 0) / 10);
-    ctx.fillStyle = 'rgba(255,255,255,.18)'; ctx.beginPath(); ctx.roundRect(cx - w / 2, H * .6, w, h, h / 2); ctx.fill();
-    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.roundRect(cx - w / 2, H * .6, Math.max(h, w * f), h, h / 2); ctx.fill();
-    return;
-  }
-  const keys = [['tick', 'In view'], ['!', 'At the edge'], ['?', 'Out of view']], r = m * .022, sz = m * .032;
-  ctx.font = `800 ${sz}px Nunito,system-ui,sans-serif`;
-  const widths = keys.map(([, s]) => r * 2 + m * .014 + ctx.measureText(s).width), sep = m * .05;
-  let x = cx - (widths.reduce((a, b) => a + b, 0) + sep * (keys.length - 1)) / 2;
-  keys.forEach(([g, s], n) => {                     // the legend, in white only so it can't be mistaken for a target
-    const y = H * .62;
-    ctx.lineWidth = m * .004; ctx.strokeStyle = 'rgba(255,255,255,.7)'; ctx.beginPath(); ctx.arc(x + r, y, r, 0, TAU); ctx.stroke();
-    if (g === 'tick') tick(x + r, y, r, '#fff', m * .005); else words(g, x + r, y + r * .1, r * 1.3, '#fff');
-    ctx.font = `800 ${sz}px Nunito,system-ui,sans-serif`; ctx.textAlign = 'left'; ctx.fillStyle = '#c9d2e6'; ctx.fillText(s, x + r * 2 + m * .014, y);
-    x += widths[n] + sep;
+    const w = m * .5, h = m * .014, f = Math.min(1, sc.steady / 10);
+    ctx.fillStyle = 'rgba(255,255,255,.18)'; ctx.beginPath(); ctx.roundRect(cx - w / 2, H * .19, w, h, h / 2); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.roundRect(cx - w / 2, H * .19, Math.max(h, w * f), h, h / 2); ctx.fill();
+  } else label(sc.state.every(s => s === 0) ? 'The camera can\'t see any of the coloured corners yet. Point it at the table.'
+      : edge ? `${ticks} of 4 corners fully in view. A ! corner is cut off by the edge of the camera's view.`
+      : `${ticks} of 4 corners in view. Turn the phone toward the ones that are missing.`, cx, H * .19, m * .036, '#dde3f0');
+  // The live camera, in black and white: its copies of the coloured targets can then never be mistaken for the real ones.
+  const asp = S.gw / S.gh, vw = Math.min(W - 2 * (P[0][0] + R0 * 1.6), H * .6 * asp), vh = vw / asp, vx = cx - vw / 2, vy = H * .27, rr = m * .02;
+  ctx.save(); ctx.beginPath(); ctx.roundRect(vx, vy, vw, vh, rr); ctx.clip();
+  ctx.fillStyle = '#1b2030'; ctx.fillRect(vx, vy, vw, vh);
+  if (sc.live) ctx.drawImage(view, vx, vy, vw, vh);
+  else label('Starting the camera…', cx, vy + vh / 2, m * .032, '#9ba7c2');
+  sc.found.forEach((f, j) => {                      // where the camera found each corner
+    if (!f || !sc.state[j]) return;
+    const x = vx + f[0] * vw, y = vy + f[1] * vh, r = m * .03;
+    ctx.lineWidth = m * .006; ctx.strokeStyle = '#fff'; ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.stroke();
+    if (sc.state[j] === 2) tick(x, y, r * .8, '#fff', m * .006); else words('!', x, y + r * .08, r * 1.2, '#fff');
   });
+  ctx.restore();
+  ctx.lineWidth = m * .005; ctx.strokeStyle = 'rgba(255,255,255,.85)'; ctx.beginPath(); ctx.roundRect(vx, vy, vw, vh, rr); ctx.stroke();
+  label('WHAT THE CAMERA SEES', cx, vy + vh + m * .035, m * .026, '#c9d2e6', `${m * .005}px`);
 }
 function icon(i, x, y, s) {
   ctx.lineCap = 'round'; ctx.lineJoin = 'round';
