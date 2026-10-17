@@ -611,24 +611,83 @@ async function stageMagic() {
               frames: ms.length, msPerFrame: r1(pct(ms, .5))};
 }
 
-/* ---------- 6. Firefly hands: find hands, then fingertips, while fireflies keep flying everywhere ---------- */
-function findHands(f) {
-  const w = S.gw, h = S.gh, n = w * h, {t, kG} = S.thr, hit = new Uint8Array(n);
-  let used = 0, cnt = 0, shadow = 0;
+/* ---------- 6. Firefly hands ----------
+   Read the same way Block Table reads blocks, which is tuned on a real table: the scene holds still, the
+   empty table is photographed under it, and a hand is whatever differs from that photo by more than the
+   camera's own flicker. Only the fireflies and the finger counts move; wherever one of those was being
+   drawn when the camera took its picture, the previous reading is kept instead. */
+function diffD(r, g, b, br, bg, bb) {             // colour shift or brightness change, whichever is bigger (as in Block Table)
+  const t = r + g + b + 1, u = br + bg + bb + 1;
+  const dc = Math.hypot(r / t - br / u, g / t - bg / u), dl = Math.abs(Math.log((t + 40) / (u + 40)));
+  return Math.max(dc / .05, dl / .22);
+}
+function insetRect() {                             // the live camera panel, bottom left
+  const w = S.W * .24, h = w * S.gh / S.gw, m = Math.min(S.W, S.H);
+  return {x: m * .03, y: S.H - h - m * .07, w, h};
+}
+function prepareHandMask() {                      // camera samples that can be read: inside the picture, away from its edge, not on the panel
+  const w = S.gw, h = S.gh, n = w * h, ir = insetRect(), pad = Math.min(S.W, S.H) * .03;
+  S.hmask = new Uint8Array(n); S.hidx = [];
   for (let i = 0; i < n; i++) {
-    if (f.res[i] < 0) continue; used++;
-    if (f.res[i] > t + kG * f.grd[i] + .6 * f.mot[i]) {   // where the picture was changing fast, it takes a bigger difference
-      cnt++;
-      if (f.shade[i]) shadow++; else hit[i] = 1;  // shadows are left out, so they can't join fingers together
+    if (S.maskDT[i] < 6) continue;
+    const [x, y] = project(S.Hi, (i % w + .5) / w, (((i / w) | 0) + .5) / h), sx = x * S.W, sy = y * S.H;
+    if (x < 0 || y < 0 || x >= 1 || y >= 1) continue;
+    if (sx > ir.x - pad && sx < ir.x + ir.w + pad && sy > ir.y - pad * 2.5 && sy < ir.y + ir.h + pad) continue;
+    S.hmask[i] = 1; if (i % 7 === 0) S.hidx.push(i);
+  }
+}
+async function learnHandRef() {                   // photograph the still, empty scene: the average, and how much each spot flickers
+  const n = 7, frames = [];
+  for (let i = 0; i < n; i++) { await nextCamFrame(); frames.push(grabHalf()); await sleep(40); }
+  const len = frames[0].length, ref = new Float32Array(len), noise = new Float32Array(len / 4);
+  for (let k = 0; k < len; k++) { let s = 0; for (const f of frames) s += f[k]; ref[k] = s / n; }
+  for (let i = 0; i < len / 4; i++) {
+    const k = i * 4; let v = 0;
+    for (const f of frames) { const d = diffD(f[k], f[k + 1], f[k + 2], ref[k], ref[k + 1], ref[k + 2]); v += d * d; }
+    noise[i] = Math.sqrt(v / n);
+  }
+  S.href = ref; S.hnoise = noise; S.hprev = new Uint8Array(len / 4);
+}
+function busyMask(tg) {                            // samples where a firefly or a finger count was drawn when this picture was taken
+  const w = S.gw, h = S.gh, ex = S.hex && S.hex.length === w * h ? S.hex : (S.hex = new Uint8Array(w * h)), t0 = tg - (S.lag || 200);
+  ex.fill(0);
+  for (const e of S.drawn) {
+    if (e.t < t0 - 150 || e.t > t0 + 80) continue;
+    for (const [x, y, R] of e.p) {
+      const [u, v] = project(S.Hm, x / S.W, y / S.H), [u2, v2] = project(S.Hm, (x + R) / S.W, y / S.H);
+      const cx = u * w, cy = v * h, rr = Math.hypot((u2 - u) * w, (v2 - v) * h) + 1.5;
+      for (let yy = Math.max(0, Math.floor(cy - rr)); yy <= Math.min(h - 1, Math.ceil(cy + rr)); yy++)
+        for (let xx = Math.max(0, Math.floor(cx - rr)); xx <= Math.min(w - 1, Math.ceil(cx + rr)); xx++)
+          if ((xx - cx) ** 2 + (yy - cy) ** 2 <= rr * rr) ex[yy * w + xx] = 1;
     }
   }
-  if (cnt > used * .35) return null;              // half the table changed at once: the room or the camera changed, not a hand
-  S.shadowShare = cnt ? shadow / cnt : 0;
+  return ex;
+}
+function readHands(tg, cam) {
+  const n = S.gw * S.gh, ref = S.href, noise = S.hnoise, hm = S.hmask, ex = busyMask(tg), prev = S.hprev, sens = 1.2;
+  const hit = new Uint8Array(n), shade = new Uint8Array(n), a = [0, 0, 0], b = [0, 0, 0];
+  for (const i of S.hidx) { const k = i * 4; for (let c = 0; c < 3; c++) { a[c] += ref[k + c]; b[c] += cam[k + c]; } }
+  const gain = a.map((v, c) => v / (b[c] || 1));  // match the camera's overall brightness and tint to the photo, as it drifts
+  let used = 0, cnt = 0, shadow = 0;
+  for (let i = 0; i < n; i++) {
+    if (!hm[i]) continue; used++;
+    if (ex[i]) { hit[i] = prev[i]; continue; }
+    const k = i * 4, r = cam[k] * gain[0], g = cam[k + 1] * gain[1], bl = cam[k + 2] * gain[2];
+    if (diffD(r, g, bl, ref[k], ref[k + 1], ref[k + 2]) * sens <= 1 + 4 * noise[i]) continue;
+    cnt++;
+    if ((r + g + bl + 1) / (ref[k] + ref[k + 1] + ref[k + 2] + 1) < .22) { shadow++; shade[i] = 1; }   // almost no light at all: a shadow
+    else hit[i] = 1;
+  }
+  S.hprev = hit;
+  return {hit, shade, used, cnt, shadow};
+}
+function findHands(hit, used) {
+  const w = S.gw, h = S.gh, n = w * h;
   const clean = new Uint8Array(n);
   for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
     const i = y * w + x; let s = 0;
     for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) s += hit[i + dy * w + dx];
-    clean[i] = s >= 5 ? 1 : 0;
+    clean[i] = s >= 4 ? 1 : 0;
   }
   const {lab, sizes} = components(clean, w, h), hands = [];
   for (let id = 1; id < sizes.length; id++) {
@@ -641,7 +700,7 @@ function findHands(f) {
     const dt = chamfer(b, bw, bh);
     let pi = 0; for (let i = 1; i < dt.length; i++) if (dt[i] > dt[pi]) pi = i;
     const r = dt[pi] / 3, px = pi % bw, py = (pi / bw) | 0;
-    const hand = {palm: toScreen(px - 1 + x0, py - 1 + y0), r, tips: [], area: sizes[id]};
+    const hand = {palm: toScreen(px - 1 + x0, py - 1 + y0), g: [px - 1 + x0, py - 1 + y0], r, tips: [], area: sizes[id]};
     hands.push(hand);
     if (r < 3) continue;                         // too thin to be a hand: a block or a pencil
     const c = trace(b, bw, bh), N = c.length, k = Math.max(3, Math.round(r * .9));
@@ -662,24 +721,56 @@ function findHands(f) {
     for (const p of cand) {
       if (hand.tips.length >= 5) break;
       if (hand.tips.some(q => { const d = Math.abs(q.i - p[0]); return Math.min(d, N - d) < k * 1.5; })) continue;
-      hand.tips.push({i: p[0], at: toScreen(p[2], p[3])});
+      hand.tips.push({i: p[0], at: toScreen(p[2], p[3]), g: [p[2], p[3]]});
     }
   }
   return hands;
 }
 function toScreen(gx, gy) { const [x, y] = project(S.Hi, (gx + .5) / S.gw, (gy + .5) / S.gh); return [x * S.W, y * S.H]; }
+const panel = document.createElement('canvas'), panelCtx = panel.getContext('2d');
+function drawPanel(cam, rd, hands) {              // the live camera in grey, hand in red, shadow in blue, palm and fingertips marked
+  const w = S.gw, h = S.gh;
+  if (panel.width !== w || panel.height !== h) { panel.width = w; panel.height = h; }
+  const im = panelCtx.createImageData(w, h), o = im.data;
+  for (let i = 0; i < w * h; i++) {
+    const k = i * 4, v = (.3 * cam[k] + .59 * cam[k + 1] + .11 * cam[k + 2]) * .7;
+    if (rd && rd.hit[i]) { o[k] = 255; o[k + 1] = v * .35; o[k + 2] = v * .35; }
+    else if (rd && rd.shade[i]) { o[k] = v * .4; o[k + 1] = v * .6; o[k + 2] = 255; }
+    else { o[k] = o[k + 1] = o[k + 2] = S.hmask && !S.hmask[i] ? v * .45 : v; }
+    o[k + 3] = 255;
+  }
+  panelCtx.putImageData(im, 0, 0);
+  for (const hd of hands || []) {
+    panelCtx.strokeStyle = '#fff'; panelCtx.lineWidth = 1.5; panelCtx.beginPath(); panelCtx.arc(hd.g[0], hd.g[1], Math.max(2, hd.r), 0, TAU); panelCtx.stroke();
+    panelCtx.fillStyle = '#ffd23f'; for (const tp of hd.tips) { panelCtx.beginPath(); panelCtx.arc(tp.g[0], tp.g[1], 3, 0, TAU); panelCtx.fill(); }
+  }
+}
 async function stageHands() {
-  S.scene = {type: 'hands'}; S.rec = true; S.handsOn = true;
-  R.hands = R.hands || {looks: 0, sawHand: 0, mostTips: 0, ignored: 0, msPerLook: 0};
-  const run = S.handRun = (S.handRun || 0) + 1, ms = [];
-  let lastN = -1, same = 0, said = -1;
+  const sc = S.scene = {type: 'hands', ready: false}, run = S.handRun = (S.handRun || 0) + 1, ms = [];
+  S.rec = false; S.hist = []; S.handsOn = true; S.drawn = []; S.handView = []; S.tips = [];
+  R.hands = R.hands || {looks: 0, sawHand: 0, mostTips: 0, ignored: 0, relearned: 0, msPerLook: 0};
+  prepareHandMask(); drawPanel(grabHalf(), null, null);
+  await sleep(S.wait + 300);                      // the still scene, without fireflies yet, reaches the camera
+  if (!S.handsOn || S.handRun !== run) return;
+  await learnHandRef(); sc.ready = true;
+  let lastN = -1, same = 0, said = -1, shaky = 0;
   while (S.handsOn && S.handRun === run) {
     const tg = await nextCamFrame(), cam = grabHalf(), t1 = performance.now();
-    const f = readFrame(tg, cam);
-    const hands = f ? findHands(f) : null;
+    const rd = readHands(tg, cam);
+    let hands = null;
+    if (rd.cnt > rd.used * .35) {                 // much of the table changed at once: the room light or the camera, not a hand
+      R.hands.ignored++;
+      if (++shaky > 15) {                         // it lasted: photograph the empty table again
+        shaky = 0; R.hands.relearned++; sc.ready = false; S.handView = []; S.tips = [];
+        speak('Hands off the table for a moment.');
+        await sleep(S.wait + 1500); await learnHandRef(); sc.ready = true;
+      }
+    } else { shaky = 0; hands = findHands(rd.hit, rd.used); }
+    drawPanel(cam, rd, hands);
     ms.push(performance.now() - t1); if (ms.length > 100) ms.shift();
     R.hands.looks++; R.hands.msPerLook = r1(pct(ms, .5));
-    if (!hands) { R.hands.ignored++; await sleep(30); continue; }
+    if (!hands) { await sleep(30); continue; }
+    S.shadowShare = rd.cnt ? rd.shadow / rd.cnt : 0;
     S.handView = hands.filter(hd => hd.r >= 3);
     S.tips = S.handView.flatMap(hd => hd.tips.map(({at: [x, y]}) => {        // each tip, plus which way the finger points
       const dx = x - hd.palm[0], dy = y - hd.palm[1], d = Math.hypot(dx, dy) || 1; return [x, y, dx / d, dy / d];
@@ -896,13 +987,27 @@ function frame(ms) {
     else if (sc.type === 'aim') drawAim(sc, t);
     else if (sc.type === 'magic') { meadow(t, true); flies(dt, t); words('Hands off the table for a moment', W / 2, H * .1, m * .055, '#3b2a5a', 'rgba(255,255,255,.8)'); }
     else if (sc.type === 'hands') {
-      meadow(t, false); flies(dt, t);
-      if (!S.everHand) words('Spread a hand flat on the table', W / 2, H * .1, m * .06, '#3b2a5a', 'rgba(255,255,255,.8)');
-      for (const hd of S.handView) if (hd.tips.length) {
-        const [x, y] = hd.palm;
-        ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.beginPath(); ctx.arc(x, y, m * .045, 0, TAU); ctx.fill();
-        words(String(hd.tips.length), x, y + m * .004, m * .06, '#3b2a5a');
+      meadow(0, false);                             // held still: the camera compares against a photo of it
+      words('Spread a hand flat on the table', W / 2, H * .1, m * .06, '#3b2a5a', 'rgba(255,255,255,.8)');
+      const busy = [];
+      if (sc.ready) {
+        flies(dt, t);
+        for (const f of S.flies) busy.push([f.x, f.y, m * .036]);
+        for (const hd of S.handView) if (hd.tips.length) {
+          const [x, y] = hd.palm;
+          ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.beginPath(); ctx.arc(x, y, m * .045, 0, TAU); ctx.fill();
+          words(String(hd.tips.length), x, y + m * .004, m * .06, '#3b2a5a');
+          busy.push([x, y, m * .055]);
+        }
       }
+      const now = performance.now();                // remember what moved where, so those spots aren't read as hands
+      S.drawn.push({t: now, p: busy});
+      while (S.drawn.length > 2 && S.drawn[0].t < now - (S.lag || 300) - 600) S.drawn.shift();
+      const ir = insetRect();
+      ctx.save(); ctx.beginPath(); ctx.roundRect(ir.x, ir.y, ir.w, ir.h, m * .012); ctx.clip();
+      ctx.drawImage(panel, ir.x, ir.y, ir.w, ir.h); ctx.restore();
+      ctx.lineWidth = m * .004; ctx.strokeStyle = '#fff'; ctx.beginPath(); ctx.roundRect(ir.x, ir.y, ir.w, ir.h, m * .012); ctx.stroke();
+      label(sc.ready ? 'CAMERA · RED = HAND' : 'CAMERA · PHOTOGRAPHING THE TABLE', ir.x + ir.w / 2, ir.y - m * .025, m * .022, '#3b2a5a', `${m * .003}px`);
     }
   } catch (e) { console.error(e); }
   if (sc && sc.timed && !sc.shownAt) sc.shownAt = performance.now();

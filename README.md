@@ -43,7 +43,7 @@ It starts by helping aim the camera: four coloured targets sit at the corners of
 3. **Fireflies land**: the four-dot line-up, then a 7×5 grid of dots measures how far off it is, in screen pixels and as a share of a Block Table block edge.
 4. **Rainbow**: grey steps and pure red, green and blue teach it how projected colours come out in the camera, so it can predict what the camera should see for any picture.
 5. **Magic window**: a busy moving picture over the empty table checks that prediction and sets how big a difference counts.
-6. **Firefly hands**: hands are whatever the prediction can't explain, so they're found even over a moving picture. Fingertips are points of the hand's outline far from the palm, and fireflies gather just past each one. Shadows are told apart from hands by getting almost none of the projector's light.
+6. **Firefly hands**: read the way Block Table reads blocks. The scene holds still, the empty table is photographed under it, and a hand is whatever differs from that photo; spots where a firefly or finger count was being drawn keep their last reading. Fingertips are points of the hand's outline far from the palm. A live panel in the bottom-left corner shows the camera with the hand in red and fingertips in yellow, so you can see what it's reading. The Magic window numbers stay in the report as a measure of reading over moving pictures, which phones that keep adjusting their own exposure make unreliable.
 
 Tap the gear for the report card. *Copy results* copies every number as text. The last results, line-up and delay are saved under `tableTuneUp`.
 
